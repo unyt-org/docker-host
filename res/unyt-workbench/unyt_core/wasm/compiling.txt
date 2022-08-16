@@ -1,0 +1,10 @@
+# WASM
+emcc -O3 datex_runtime.cpp -o datex_runtime.wasm
+emcc datex_runtime.cpp -o datex_runtime.js -s WASM=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]'
+emcc datex_runtime.cpp -o datex_runtime.js -s WASM=1 -s EXPORTED_RUNTIME_METHODS='["cwrap"]' -std=c++11 -s EXPORT_ES6=1 -s MODULARIZE=1
+emcc --bind -o datex_runtime.js datex_runtime.cpp -std=c++11 -s EXPORT_ES6=1 -s MODULARIZE=1
+emcc --bind -o datex_runtime.js datex_runtime.cpp -std=c++20 -s EXPORT_ES6=1 -s MODULARIZE=1
+emcc --bind -o datex_runtime.js datex_runtime.cpp datex_runtime_for_wasm.cpp -std=c++20 -s EXPORT_ES6=1 -s MODULARIZE=1
+
+# NATIVE C++
+g++ datex_runtime.cpp datex_runtime_native.cpp -o datex_runtime && ./datex_runtime "null 23"

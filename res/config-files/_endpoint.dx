@@ -1,0 +1,7 @@
+<unyt:endpoint-config>
+
+{
+	version: 1,
+	endpoint: @@010E52616CFD208F2D837222,
+	'expose-database': true
+}

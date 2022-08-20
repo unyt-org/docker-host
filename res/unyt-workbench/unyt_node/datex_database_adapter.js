@@ -1,15 +1,3 @@
-var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {
-    if (kind === "m") throw new TypeError("Private method is not writable");
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-    return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
-};
-var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (receiver, state, kind, f) {
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-    return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
-var _DatexDatabaseAdapter_instances, _a, _DatexDatabaseAdapter_credentials, _DatexDatabaseAdapter_sql_client, _DatexDatabaseAdapter_sql_event_watcher, _DatexDatabaseAdapter_connected, _DatexDatabaseAdapter_query, _DatexDatabaseAdapter_queryFirst, _DatexDatabaseAdapter_connect, _DatexDatabaseAdapter_getColumnDATEXType, _DatexDatabaseAdapter_updateField, _DatexDatabaseAdapter_initOptions, _DatexDatabaseAdapter_initializeDatexTypeForTable, _DatexDatabaseAdapter_watchExternalUpdates;
 import mysql from 'mysql';
 import MySQLEvents from '@rodrigogs/mysql-events';
 import { Datex } from '../unyt_core/datex_runtime.js';
@@ -55,87 +43,119 @@ const mysql_datex_type_map = new Map([
     ['json', Datex.Type.std.Object],
 ]);
 export class DatexDatabaseAdapter {
+    #credentials;
+    #sql_client;
+    #sql_event_watcher;
+    #connected = false;
+    table_types = new Map();
+    table_default_options = new Map();
+    table_raw_datex_default_options = new Map();
+    table_columns = new Map();
+    table_primary_keys = new Map();
+    table_entries_by_primary_key = new Map();
+    tables_with_dx_ptr_column = new Set();
+    table_pointer_ref_fields = new Map();
+    tables_with_raw_datex = new Set();
+    static DX_PTR_COLUMN = "__dx_ptr";
+    static QUERY = {
+        GET_TABLE_INFO: "SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = ? AND TABLE_NAME = ?;",
+        HAS_TABLE: "SELECT COUNT(*) AS COUNT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = ? AND TABLE_NAME = ?;",
+        GET_COLUMN_INFO: "SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = ? and TABLE_NAME = ?;",
+        GET_TABLE_FIELDS: "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? ORDER BY ORDINAL_POSITION;",
+        GET_TABLE_FIELD_NAMES: "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? ORDER BY ORDINAL_POSITION;",
+        GET_DB_FOREIGN_KEYS: "SELECT TABLE_NAME,COLUMN_NAME,CONSTRAINT_NAME,REFERENCED_TABLE_NAME,REFERENCED_COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_SCHEMA = ?;",
+        UPDATE_FIELD: "UPDATE ?? SET ?? = ? WHERE ?? = ?;",
+        ADD_DX_PTR_COLUMN: "ALTER TABLE ?? ADD COLUMN `" + this.DX_PTR_COLUMN + "` BINARY(24) INVISIBLE PRIMARY KEY;",
+        DROP_DX_PTR_COLUMN: "ALTER TABLE ?? DROP `" + this.DX_PTR_COLUMN + "` IF EXISTS;",
+        UPDATE_DX_PTR_COLUMN: "UPDATE ?? SET `" + this.DX_PTR_COLUMN + "` = ? WHERE ?? = ?;",
+        INSERT_ENTRY: "INSERT INTO ?? (??) VALUES (?)",
+        HAS_POINTER: "SELECT COUNT(*) AS COUNT FROM ?? WHERE `" + this.DX_PTR_COLUMN + "` = ?;",
+        WHERE_DX_PTR_ID_IS: "`" + this.DX_PTR_COLUMN + "` = ?"
+    };
     constructor(credentials, use_as_pointer_source = true) {
-        _DatexDatabaseAdapter_instances.add(this);
-        _DatexDatabaseAdapter_credentials.set(this, void 0);
-        _DatexDatabaseAdapter_sql_client.set(this, void 0);
-        _DatexDatabaseAdapter_sql_event_watcher.set(this, void 0);
-        _DatexDatabaseAdapter_connected.set(this, false);
-        Object.defineProperty(this, "table_types", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "table_default_options", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "table_raw_datex_default_options", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "table_columns", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "table_primary_keys", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "table_entries_by_primary_key", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "tables_with_dx_ptr_column", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Set()
-        });
-        Object.defineProperty(this, "table_pointer_ref_fields", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "tables_with_raw_datex", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Set()
-        });
-        __classPrivateFieldSet(this, _DatexDatabaseAdapter_credentials, credentials, "f");
+        this.#credentials = credentials;
         if (use_as_pointer_source)
             Datex.Pointer.registerPointerSource(this);
     }
     async getPointer(pointer_id, pointerify) {
         for (let table of this.tables_with_dx_ptr_column) {
             const pointer_id_buffer = Buffer.from(Datex.Pointer.hex2buffer(pointer_id).buffer);
-            const has_pointer = (await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_queryFirst).call(this, DatexDatabaseAdapter.QUERY.HAS_POINTER, [table, pointer_id_buffer])).COUNT;
+            const has_pointer = (await this.#queryFirst(DatexDatabaseAdapter.QUERY.HAS_POINTER, [table, pointer_id_buffer])).COUNT;
             if (has_pointer) {
                 const [pointer] = await this.getEntries(table, DatexDatabaseAdapter.QUERY.WHERE_DX_PTR_ID_IS, { sync: false }, [pointer_id_buffer]);
                 return pointer;
             }
         }
     }
+    #query(query_string, query_params) {
+        return new Promise((resolve, reject) => {
+            if (typeof query_string != "string") {
+                console.error("invalid query:", query_string);
+                throw ("invalid query");
+            }
+            if (!query_string)
+                throw ("empty query");
+            try {
+                this.#sql_client.query(query_string, query_params ?? [], function (err, rows, fields) {
+                    if (err)
+                        reject(err);
+                    else
+                        resolve(rows);
+                });
+            }
+            catch (e) {
+                console.error("SQL error:", e);
+                reject(e);
+            }
+        });
+    }
+    async #queryFirst(query_string, query_params) {
+        return (await this.#query(query_string, query_params))?.[0];
+    }
+    async #connect() {
+        const client = mysql.createConnection({ ...this.#credentials,
+            typeCast: function (field, next) {
+                if (field.type === 'TINY' && field.length === 1)
+                    return (field.string() === '1');
+                if (field.type === 'TINYINT' || field.type === 'LONG' || field.type === 'LONGLONG' || field.type === 'BIGINT' || field.type === 'SMALLINT' || field.type === 'MEDIUMINT' || field.type === 'INT' || field.type === 'YEAR') {
+                    const string = field.string();
+                    if (string != null)
+                        return BigInt(string);
+                    return null;
+                }
+                if (field.type === 'SET')
+                    return new Set(field.string().split(","));
+                if (field.type === 'JSON')
+                    return JSON.parse(field.string());
+                else
+                    return next();
+            }
+        });
+        return new Promise((resolve, reject) => {
+            client.connect(async (err) => {
+                if (err)
+                    reject(err);
+                else {
+                    this.#connected = true;
+                    this.#sql_client = client;
+                    resolve();
+                }
+            });
+        });
+    }
+    #getColumnDATEXType(column_info) {
+        if (column_info.IS_NULLABLE == "YES")
+            return mysql_datex_type_map.get(column_info.DATA_TYPE);
+        else
+            return mysql_datex_type_map.get(column_info.DATA_TYPE);
+    }
     async setRawDATEXTable(table_name, options) {
-        if (!__classPrivateFieldGet(this, _DatexDatabaseAdapter_connected, "f"))
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_connect).call(this);
-        if (!(await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_queryFirst).call(this, DatexDatabaseAdapter.QUERY.HAS_TABLE, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name])).COUNT)
+        if (!this.#connected)
+            await this.#connect();
+        if (!(await this.#queryFirst(DatexDatabaseAdapter.QUERY.HAS_TABLE, [this.#credentials.database, table_name])).COUNT)
             throw Error("Table '" + table_name + "' does not exist");
         this.tables_with_raw_datex.add(table_name);
-        let column_info = await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name]);
+        let column_info = await this.#query(DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [this.#credentials.database, table_name]);
         let has_dx_ptr_column = false;
         let primary_key_name;
         this.table_entries_by_primary_key.set(table_name, new Map());
@@ -152,7 +172,7 @@ export class DatexDatabaseAdapter {
         }
         if (options?.bind_pointer_ids && !has_dx_ptr_column) {
             console.log("add dx_ptr column");
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
+            await this.#query(DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
             this.tables_with_dx_ptr_column.add(table_name);
         }
         if (!this.table_primary_keys.has(table_name)) {
@@ -161,14 +181,14 @@ export class DatexDatabaseAdapter {
         this.table_raw_datex_default_options.set(table_name, options);
     }
     async setTableTemplateClass(table_name, template_class, options = {}) {
-        if (!__classPrivateFieldGet(this, _DatexDatabaseAdapter_connected, "f"))
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_connect).call(this);
-        if (!(await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_queryFirst).call(this, DatexDatabaseAdapter.QUERY.HAS_TABLE, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name])).COUNT)
+        if (!this.#connected)
+            await this.#connect();
+        if (!(await this.#queryFirst(DatexDatabaseAdapter.QUERY.HAS_TABLE, [this.#credentials.database, table_name])).COUNT)
             throw Error("Table '" + table_name + "' does not exist");
         const type = Datex.Type.getClassDatexType(template_class);
         this.table_default_options.set(table_name, options);
         this.table_types.set(table_name, type);
-        let column_info = await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name]);
+        let column_info = await this.#query(DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [this.#credentials.database, table_name]);
         let has_dx_ptr_column = false;
         let primary_key_name;
         this.table_entries_by_primary_key.set(table_name, new Map());
@@ -185,22 +205,22 @@ export class DatexDatabaseAdapter {
         }
         if (options?.bind_pointer_ids && !has_dx_ptr_column) {
             console.log("add dx_ptr column");
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
+            await this.#query(DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
             this.tables_with_dx_ptr_column.add(table_name);
         }
         if (!this.table_primary_keys.has(table_name)) {
             throw Error("DATEX pointer binding only works for tables with a primary key");
         }
-        __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_initializeDatexTypeForTable).call(this, table_name, type);
-        __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_initOptions).call(this, table_name, options);
+        this.#initializeDatexTypeForTable(table_name, type);
+        this.#initOptions(table_name, options);
     }
     async createDATEXTypeForTable(table_name, options = {}) {
-        if (!__classPrivateFieldGet(this, _DatexDatabaseAdapter_connected, "f"))
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_connect).call(this);
-        if (!(await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_queryFirst).call(this, DatexDatabaseAdapter.QUERY.HAS_TABLE, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name])).COUNT)
+        if (!this.#connected)
+            await this.#connect();
+        if (!(await this.#queryFirst(DatexDatabaseAdapter.QUERY.HAS_TABLE, [this.#credentials.database, table_name])).COUNT)
             throw Error("Table '" + table_name + "' does not exist");
         this.table_default_options.set(table_name, options);
-        let column_info = await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, table_name]);
+        let column_info = await this.#query(DatexDatabaseAdapter.QUERY.GET_COLUMN_INFO, [this.#credentials.database, table_name]);
         const table_class = class {
         };
         const template = new Datex.Record();
@@ -214,22 +234,22 @@ export class DatexDatabaseAdapter {
             }
             if (column.COLUMN_KEY == 'PRI')
                 this.table_primary_keys.set(table_name, primary_key_name = column.COLUMN_NAME);
-            template[column.COLUMN_NAME] = __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_getColumnDATEXType).call(this, column);
+            template[column.COLUMN_NAME] = this.#getColumnDATEXType(column);
         }
         if (options?.bind_pointer_ids && !has_dx_ptr_column) {
             console.log("add dx_ptr column");
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
+            await this.#query(DatexDatabaseAdapter.QUERY.ADD_DX_PTR_COLUMN, [table_name]);
             this.tables_with_dx_ptr_column.add(table_name);
         }
         if (!this.table_primary_keys.has(table_name)) {
             throw Error("DATEX pointer binding only works for tables with a primary key");
         }
-        const type = Datex.Type.get(__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database, options?.name ?? table_name)
+        const type = Datex.Type.get(this.#credentials.database, options?.name ?? table_name)
             .setTemplate(template);
         this.table_types.set(table_name, type);
         Datex.updateJSInterfaceConfiguration(type, 'class', table_class);
-        __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_initializeDatexTypeForTable).call(this, table_name, type);
-        __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_initOptions).call(this, table_name, options);
+        this.#initializeDatexTypeForTable(table_name, type);
+        this.#initOptions(table_name, options);
         return table_class;
     }
     async storeValue(table_name, value) {
@@ -263,7 +283,67 @@ export class DatexDatabaseAdapter {
                 data.push(value[column]);
         }
         console.log("insert", table_name, columns, data);
-        await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.INSERT_ENTRY, [table_name, columns, data]);
+        await this.#query(DatexDatabaseAdapter.QUERY.INSERT_ENTRY, [table_name, columns, data]);
+    }
+    async #updateField(table_name, key, value, primary_key_name, primary_key) {
+        console.log("update field", table_name, key, value, primary_key, this.table_pointer_ref_fields.get(table_name)?.has(key));
+        if (this.table_pointer_ref_fields.get(table_name)?.has(key)) {
+            value = Buffer.from(Datex.Pointer.createOrGet(value).id_buffer.buffer);
+        }
+        await this.#query(DatexDatabaseAdapter.QUERY.UPDATE_FIELD, [table_name, key, value, primary_key_name, primary_key]);
+    }
+    #initOptions(table_name, options) {
+        const pointer_ref_fields = new Set();
+        this.table_pointer_ref_fields.set(table_name, pointer_ref_fields);
+        for (let config of options.transform_properties ?? []) {
+            if (config.mapping_type == PropertyMappingType.pointer_ref) {
+                if (config.column == undefined)
+                    config.column = config.key;
+                pointer_ref_fields.add(config.column);
+            }
+            if (config.mapping_type == PropertyMappingType.pointer_ref_extend) {
+                pointer_ref_fields.add(config.column);
+            }
+        }
+    }
+    #initializeDatexTypeForTable(table_name, type) {
+        const primary_key_name = this.table_primary_keys.get(table_name) ?? DatexDatabaseAdapter.DX_PTR_COLUMN;
+        Datex.updateJSInterfaceConfiguration(type, 'proxify_children', false);
+        Datex.updateJSInterfaceConfiguration(type, 'set_property', (parent, key, value) => {
+            parent[key] = value;
+        });
+        Datex.updateJSInterfaceConfiguration(type, 'set_property_silently', (parent, key, value, pointer) => {
+            pointer.shadow_object[key] = value;
+            this.#updateField(table_name, key, value, primary_key_name, parent[primary_key_name]);
+        });
+        Datex.updateJSInterfaceConfiguration(type, 'get_property', (parent, key) => {
+            return parent[key];
+        });
+    }
+    #watchExternalUpdates(table_name) {
+        const expression = this.#credentials.database + "." + table_name;
+        console.log("watch external updates: " + expression);
+        const primary_key_name = this.table_primary_keys.get(table_name);
+        const existing_entries = this.table_entries_by_primary_key.get(table_name);
+        const watcher = this.#sql_event_watcher.addTrigger({
+            name: "UPDATE_" + expression,
+            expression,
+            statement: MySQLEvents.STATEMENTS.UPDATE,
+            onEvent: (event) => {
+                for (let row of event.affectedRows) {
+                    const fields = row.after;
+                    const primary_key = fields[primary_key_name];
+                    let is_bigint = false;
+                    if (existing_entries.has(primary_key) || (is_bigint = true && typeof primary_key == "number" && existing_entries.has(BigInt(primary_key)))) {
+                        const entry = existing_entries.get(is_bigint ? BigInt(primary_key) : primary_key);
+                        for (let column_name of event.affectedColumns) {
+                            console.log("row changed", column_name, fields[column_name]);
+                            entry[column_name] = fields[column_name];
+                        }
+                    }
+                }
+            }
+        });
     }
     async getEntriesByPrimaryKeys(table_name, primary_keys, options) {
         if (!this.table_primary_keys.has(table_name))
@@ -298,8 +378,8 @@ export class DatexDatabaseAdapter {
         const has_dx_ptr_column = this.tables_with_dx_ptr_column.has(table_name);
         const pointer_ref_fields = this.table_pointer_ref_fields.get(table_name);
         let rows = has_dx_ptr_column ?
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, "SELECT *,?? FROM ?? WHERE " + where + ";", [DatexDatabaseAdapter.DX_PTR_COLUMN, table_name, ...args]) :
-            await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, "SELECT * FROM ?? WHERE " + where + ";", [table_name, ...args]);
+            await this.#query("SELECT *,?? FROM ?? WHERE " + where + ";", [DatexDatabaseAdapter.DX_PTR_COLUMN, table_name, ...args]) :
+            await this.#query("SELECT * FROM ?? WHERE " + where + ";", [table_name, ...args]);
         for (let row of rows) {
             if (sync_entries && existing_entries.has(row[table_primary_key])) {
                 entries.push(existing_entries.get(row[table_primary_key]));
@@ -358,7 +438,7 @@ export class DatexDatabaseAdapter {
                         const pointer = Datex.Pointer.create(null, object, false);
                         object = pointer.value;
                         console.log("new pointer id " + pointer);
-                        await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.UPDATE_DX_PTR_COLUMN, [table_name, Buffer.from(pointer.id_buffer.buffer), table_primary_key, row[table_primary_key]]);
+                        await this.#query(DatexDatabaseAdapter.QUERY.UPDATE_DX_PTR_COLUMN, [table_name, Buffer.from(pointer.id_buffer.buffer), table_primary_key, row[table_primary_key]]);
                     }
                 }
                 existing_entries.set(row[table_primary_key], object);
@@ -367,144 +447,3 @@ export class DatexDatabaseAdapter {
         return entries;
     }
 }
-_a = DatexDatabaseAdapter, _DatexDatabaseAdapter_credentials = new WeakMap(), _DatexDatabaseAdapter_sql_client = new WeakMap(), _DatexDatabaseAdapter_sql_event_watcher = new WeakMap(), _DatexDatabaseAdapter_connected = new WeakMap(), _DatexDatabaseAdapter_instances = new WeakSet(), _DatexDatabaseAdapter_query = function _DatexDatabaseAdapter_query(query_string, query_params) {
-    return new Promise((resolve, reject) => {
-        if (typeof query_string != "string") {
-            console.error("invalid query:", query_string);
-            throw ("invalid query");
-        }
-        if (!query_string)
-            throw ("empty query");
-        try {
-            __classPrivateFieldGet(this, _DatexDatabaseAdapter_sql_client, "f").query(query_string, query_params ?? [], function (err, rows, fields) {
-                if (err)
-                    reject(err);
-                else
-                    resolve(rows);
-            });
-        }
-        catch (e) {
-            console.error("SQL error:", e);
-            reject(e);
-        }
-    });
-}, _DatexDatabaseAdapter_queryFirst = async function _DatexDatabaseAdapter_queryFirst(query_string, query_params) {
-    return (await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, query_string, query_params))?.[0];
-}, _DatexDatabaseAdapter_connect = async function _DatexDatabaseAdapter_connect() {
-    const client = mysql.createConnection({ ...__classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f"),
-        typeCast: function (field, next) {
-            if (field.type === 'TINY' && field.length === 1)
-                return (field.string() === '1');
-            if (field.type === 'TINYINT' || field.type === 'LONG' || field.type === 'LONGLONG' || field.type === 'BIGINT' || field.type === 'SMALLINT' || field.type === 'MEDIUMINT' || field.type === 'INT' || field.type === 'YEAR') {
-                const string = field.string();
-                if (string != null)
-                    return BigInt(string);
-                return null;
-            }
-            if (field.type === 'SET')
-                return new Set(field.string().split(","));
-            if (field.type === 'JSON')
-                return JSON.parse(field.string());
-            else
-                return next();
-        }
-    });
-    return new Promise((resolve, reject) => {
-        client.connect(async (err) => {
-            if (err)
-                reject(err);
-            else {
-                __classPrivateFieldSet(this, _DatexDatabaseAdapter_connected, true, "f");
-                __classPrivateFieldSet(this, _DatexDatabaseAdapter_sql_client, client, "f");
-                resolve();
-            }
-        });
-    });
-}, _DatexDatabaseAdapter_getColumnDATEXType = function _DatexDatabaseAdapter_getColumnDATEXType(column_info) {
-    if (column_info.IS_NULLABLE == "YES")
-        return mysql_datex_type_map.get(column_info.DATA_TYPE);
-    else
-        return mysql_datex_type_map.get(column_info.DATA_TYPE);
-}, _DatexDatabaseAdapter_updateField = async function _DatexDatabaseAdapter_updateField(table_name, key, value, primary_key_name, primary_key) {
-    console.log("update field", table_name, key, value, primary_key, this.table_pointer_ref_fields.get(table_name)?.has(key));
-    if (this.table_pointer_ref_fields.get(table_name)?.has(key)) {
-        value = Buffer.from(Datex.Pointer.createOrGet(value).id_buffer.buffer);
-    }
-    await __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_query).call(this, DatexDatabaseAdapter.QUERY.UPDATE_FIELD, [table_name, key, value, primary_key_name, primary_key]);
-}, _DatexDatabaseAdapter_initOptions = function _DatexDatabaseAdapter_initOptions(table_name, options) {
-    const pointer_ref_fields = new Set();
-    this.table_pointer_ref_fields.set(table_name, pointer_ref_fields);
-    for (let config of options.transform_properties ?? []) {
-        if (config.mapping_type == PropertyMappingType.pointer_ref) {
-            if (config.column == undefined)
-                config.column = config.key;
-            pointer_ref_fields.add(config.column);
-        }
-        if (config.mapping_type == PropertyMappingType.pointer_ref_extend) {
-            pointer_ref_fields.add(config.column);
-        }
-    }
-}, _DatexDatabaseAdapter_initializeDatexTypeForTable = function _DatexDatabaseAdapter_initializeDatexTypeForTable(table_name, type) {
-    const primary_key_name = this.table_primary_keys.get(table_name) ?? DatexDatabaseAdapter.DX_PTR_COLUMN;
-    Datex.updateJSInterfaceConfiguration(type, 'proxify_children', false);
-    Datex.updateJSInterfaceConfiguration(type, 'set_property', (parent, key, value) => {
-        parent[key] = value;
-    });
-    Datex.updateJSInterfaceConfiguration(type, 'set_property_silently', (parent, key, value, pointer) => {
-        pointer.shadow_object[key] = value;
-        __classPrivateFieldGet(this, _DatexDatabaseAdapter_instances, "m", _DatexDatabaseAdapter_updateField).call(this, table_name, key, value, primary_key_name, parent[primary_key_name]);
-    });
-    Datex.updateJSInterfaceConfiguration(type, 'get_property', (parent, key) => {
-        return parent[key];
-    });
-}, _DatexDatabaseAdapter_watchExternalUpdates = function _DatexDatabaseAdapter_watchExternalUpdates(table_name) {
-    const expression = __classPrivateFieldGet(this, _DatexDatabaseAdapter_credentials, "f").database + "." + table_name;
-    console.log("watch external updates: " + expression);
-    const primary_key_name = this.table_primary_keys.get(table_name);
-    const existing_entries = this.table_entries_by_primary_key.get(table_name);
-    const watcher = __classPrivateFieldGet(this, _DatexDatabaseAdapter_sql_event_watcher, "f").addTrigger({
-        name: "UPDATE_" + expression,
-        expression,
-        statement: MySQLEvents.STATEMENTS.UPDATE,
-        onEvent: (event) => {
-            for (let row of event.affectedRows) {
-                const fields = row.after;
-                const primary_key = fields[primary_key_name];
-                let is_bigint = false;
-                if (existing_entries.has(primary_key) || (is_bigint = true && typeof primary_key == "number" && existing_entries.has(BigInt(primary_key)))) {
-                    const entry = existing_entries.get(is_bigint ? BigInt(primary_key) : primary_key);
-                    for (let column_name of event.affectedColumns) {
-                        console.log("row changed", column_name, fields[column_name]);
-                        entry[column_name] = fields[column_name];
-                    }
-                }
-            }
-        }
-    });
-};
-Object.defineProperty(DatexDatabaseAdapter, "DX_PTR_COLUMN", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: "__dx_ptr"
-});
-Object.defineProperty(DatexDatabaseAdapter, "QUERY", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: {
-        GET_TABLE_INFO: "SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = ? AND TABLE_NAME = ?;",
-        HAS_TABLE: "SELECT COUNT(*) AS COUNT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = ? AND TABLE_NAME = ?;",
-        GET_COLUMN_INFO: "SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = ? and TABLE_NAME = ?;",
-        GET_TABLE_FIELDS: "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? ORDER BY ORDINAL_POSITION;",
-        GET_TABLE_FIELD_NAMES: "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? ORDER BY ORDINAL_POSITION;",
-        GET_DB_FOREIGN_KEYS: "SELECT TABLE_NAME,COLUMN_NAME,CONSTRAINT_NAME,REFERENCED_TABLE_NAME,REFERENCED_COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_SCHEMA = ?;",
-        UPDATE_FIELD: "UPDATE ?? SET ?? = ? WHERE ?? = ?;",
-        ADD_DX_PTR_COLUMN: "ALTER TABLE ?? ADD COLUMN `" + _a.DX_PTR_COLUMN + "` BINARY(24) INVISIBLE PRIMARY KEY;",
-        DROP_DX_PTR_COLUMN: "ALTER TABLE ?? DROP `" + _a.DX_PTR_COLUMN + "` IF EXISTS;",
-        UPDATE_DX_PTR_COLUMN: "UPDATE ?? SET `" + _a.DX_PTR_COLUMN + "` = ? WHERE ?? = ?;",
-        INSERT_ENTRY: "INSERT INTO ?? (??) VALUES (?)",
-        HAS_POINTER: "SELECT COUNT(*) AS COUNT FROM ?? WHERE `" + _a.DX_PTR_COLUMN + "` = ?;",
-        WHERE_DX_PTR_ID_IS: "`" + _a.DX_PTR_COLUMN + "` = ?"
-    }
-});

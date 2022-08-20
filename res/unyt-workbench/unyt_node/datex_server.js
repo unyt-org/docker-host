@@ -25,52 +25,14 @@ import DatexInterfaceManager, { DatexCommonInterface } from "../unyt_core/datex_
 import DatexCloud from "../unyt_core/datex_cloud.js";
 import { BlockchainSimAdapter } from "./blockchain_sim_adapter.js";
 export class ServerDatexInterface {
-    constructor() {
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "unknown"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "endpoints", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: pointer(new Set())
-        });
-        Object.defineProperty(this, "reachable_endpoints", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: pointer(new Map())
-        });
-        Object.defineProperty(this, "logger", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        Object.defineProperty(this, "datex_in_handler", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        this.logger = new Logger(this.constructor.name);
-        this.datex_in_handler = Datex.Runtime.getDatexInputHandler();
-    }
+    type = "unknown";
+    in = true;
+    out = true;
+    endpoints = pointer(new Set());
+    reachable_endpoints = pointer(new Map());
+    static instance;
+    logger;
+    datex_in_handler;
     static getInstance() {
         if (!this.instance)
             this.instance = new this();
@@ -80,6 +42,10 @@ export class ServerDatexInterface {
     }
     endpointWelcomeMessage(endpoint) {
         return;
+    }
+    constructor() {
+        this.logger = new Logger(this.constructor.name);
+        this.datex_in_handler = Datex.Runtime.getDatexInputHandler();
     }
     handleBlock(dxb, last_endpoint, header_callback) {
         if (header_callback)
@@ -92,27 +58,9 @@ export class ServerDatexInterface {
     }
 }
 class HttpComInterface extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "http"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: false
-        });
-    }
+    type = "http";
+    in = true;
+    out = false;
     init() {
         this.logger.success("init");
         WebServer.express.get("/", (req, res) => {
@@ -132,33 +80,12 @@ class HttpComInterface extends ServerDatexInterface {
     }
 }
 class WebPushInterface extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "webpush"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: false
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "saved_push_connections", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-    }
+    type = "webpush";
+    in = false;
+    out = true;
+    static publicKey = 'BEurqeNZ1qqnY3BzL17tu-pMusRWr2zIxw4nau7nkTYQqeMYjV31s_l6DUP-AaV1VDYvOJYRfxfQQqlFvITg01s';
+    static privateKey = 'hshlp0C6kowCz6tgs8g-ZDRyyqHJXEcY1orM8AAe2WU';
+    saved_push_connections = new Map();
     init() {
         this.logger.success("init");
         webpush.setVapidDetails('mailto:admin@unyt.org', WebPushInterface.publicKey, WebPushInterface.privateKey);
@@ -178,46 +105,11 @@ class WebPushInterface extends ServerDatexInterface {
         return null;
     }
 }
-Object.defineProperty(WebPushInterface, "publicKey", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: 'BEurqeNZ1qqnY3BzL17tu-pMusRWr2zIxw4nau7nkTYQqeMYjV31s_l6DUP-AaV1VDYvOJYRfxfQQqlFvITg01s'
-});
-Object.defineProperty(WebPushInterface, "privateKey", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: 'hshlp0C6kowCz6tgs8g-ZDRyyqHJXEcY1orM8AAe2WU'
-});
 class TCPCLI extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "tcp_cli"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "tcp_server", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-    }
+    type = "tcp_cli";
+    in = true;
+    out = true;
+    tcp_server;
     introText() {
         return `
         [30;107m                [0m
@@ -281,45 +173,12 @@ class TCPCLI extends ServerDatexInterface {
     }
 }
 class TCPComInterface extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "tcp"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "tcp_server", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        Object.defineProperty(this, "connection_endpoint_map", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-        Object.defineProperty(this, "endpoint_connection_map", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-    }
+    type = "tcp";
+    in = true;
+    out = true;
+    tcp_server;
+    connection_endpoint_map = new Map();
+    endpoint_connection_map = new Map();
     init() {
         this.logger.success("init");
         this.tcp_server = TCP.createServer((conn) => {
@@ -369,39 +228,11 @@ class TCPComInterface extends ServerDatexInterface {
     }
 }
 class WebsocketStreamComInterface extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "wss", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "wss"
-        });
-        Object.defineProperty(this, "connected_endpoint_streams", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-    }
+    wss;
+    in = true;
+    out = true;
+    type = "wss";
+    connected_endpoint_streams = new Map();
     init() {
         this.logger.success("init");
         this.wss = new WebSocket.Server({
@@ -462,39 +293,11 @@ class WebsocketStreamComInterface extends ServerDatexInterface {
     }
 }
 class WebsocketComInterface extends ServerDatexInterface {
-    constructor() {
-        super(...arguments);
-        Object.defineProperty(this, "type", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: "websocket"
-        });
-        Object.defineProperty(this, "in", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "out", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: true
-        });
-        Object.defineProperty(this, "wss", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        Object.defineProperty(this, "connected_endpoints", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: new Map()
-        });
-    }
+    type = "websocket";
+    in = true;
+    out = true;
+    wss;
+    connected_endpoints = new Map();
     init() {
         this.logger.success("init");
         this.wss = new WebSocket.Server({
@@ -635,33 +438,18 @@ network = __decorate([
 const system = await systeminformation.baseboard();
 const os = await systeminformation.osInfo();
 let Roudini = class Roudini {
-    static ping() { return 'pong'; }
-};
-Object.defineProperty(Roudini, "ABOUT", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: {
+    static ABOUT = {
         datex_version: Datex.Runtime.VERSION,
         system: system,
         os: os
-    }
-});
-Object.defineProperty(Roudini, "STATUS", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: pointer({
+    };
+    static STATUS = pointer({
         uptime: 0,
         connections: 42
-    })
-});
-Object.defineProperty(Roudini, "INTERFACES", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: pointer(new Set())
-});
+    });
+    static INTERFACES = pointer(new Set());
+    static ping() { return 'pong'; }
+};
 __decorate([
     expose,
     __metadata("design:type", Object)

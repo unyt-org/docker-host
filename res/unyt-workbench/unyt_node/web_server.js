@@ -30,6 +30,10 @@ const ALLOWED_ORIGINS = [
 express.static.mime.define({ 'text/datex': ['dx'] });
 express.static.mime.define({ 'application/datex': ['dxb'] });
 export default class WebServer {
+    static express;
+    static http;
+    static port;
+    static sub_domains = {};
     static async launch(port = parseInt(process.env.UNYT_INTERNAL_PORT) || 8080, authorized_access_only = true) {
         this.port = port;
         this.express = express();
@@ -127,9 +131,3 @@ export default class WebServer {
         });
     }
 }
-Object.defineProperty(WebServer, "sub_domains", {
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: {}
-});

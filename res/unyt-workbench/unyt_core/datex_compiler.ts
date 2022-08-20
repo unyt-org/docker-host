@@ -45,7 +45,9 @@ export enum BinaryCode {
     STD_TYPE_FUNCTION   = 0x20,
     STD_TYPE_STREAM     = 0x21,
     STD_TYPE_ANY        = 0x22,
-
+    STD_TYPE_ASSERTION  = 0x23,
+    STD_TYPE_TASK       = 0x24,
+    STD_TYPE_ITERATOR   = 0x25,
 
     // internal variables and other shorthands
     VAR_RESULT          = 0x30,
@@ -73,6 +75,12 @@ export enum BinaryCode {
     VAR_META            = 0x41,
     VAR_STATIC          = 0x42,
     VAR_THIS            = 0x43,
+    VAR_IT              = 0x47,
+    SET_VAR_IT          = 0x48,
+    VAR_IT_ACTION       = 0x49,
+    VAR_ITER            = 0x4a,
+    SET_VAR_ITER        = 0x4b,
+    VAR_ITER_ACTION     = 0x4c,
 
     VAR_REMOTE          = 0x44,
     SET_VAR_REMOTE      = 0x45,
@@ -93,7 +101,8 @@ export enum BinaryCode {
     TEMPLATE            = 0x53, // template
     EXTENDS             = 0x54, // extends
     IMPLEMENTS          = 0x55, // implements
-    DEBUG               = 0x56, // debug
+    MATCHES             = 0x56, // matches
+    DEBUG               = 0x57, // debug
 
 
     CLOSE_AND_STORE     = 0xa0, // ;
@@ -141,6 +150,9 @@ export enum BinaryCode {
     AWAIT               = 0x70, // await xy;
     HOLD                = 0x71, // hold xy;
     FUNCTION            = 0x72, // function ()
+    ASSERT              = 0x59, // assert
+    ITERATOR            = 0x5a, // iterator x;
+    ITERATION           = 0x5b, // iteration ()
 
     STRING              = 0xc0,
     INT_8               = 0xc1, // byte
@@ -178,6 +190,8 @@ export enum BinaryCode {
     STOP_SYNC           = 0xd9,
     FREEZE              = 0x60, // freeze
     SEAL                = 0x61, // seal
+    HAS                 = 0x62, // x has y
+    KEYS                = 0x63, // keys x
 
     ARRAY_START         = 0xe0,  // array / or array
     ARRAY_END           = 0xe1,
@@ -336,6 +350,11 @@ export const Regex = {
 
     FREEZE: /^freeze\b/,
     SEAL: /^seal\b/,
+    HAS: /^has\b/,
+    KEYS: /^keys\b/,
+    ITERATE: /^iterate\b/,
+    ITERATOR: /^iterator\b/,
+    ITERATION: /^iteration\b/,
 
     DELETE: /^delete\b/,
     SUBSCRIBE: /^subscribe\b/,
@@ -348,6 +367,7 @@ export const Regex = {
     TEMPLATE: /^template\b/,
     EXTENDS: /^extends\b/,
     IMPLEMENTS: /^implements\b/,
+    MATCHES: /^matches\b/,
     DEBUG: /^debug\b/,
 
     OBSERVE: /^observe\b/,
@@ -356,6 +376,9 @@ export const Regex = {
     DO: /^do\b\s*(\()?/,
     AWAIT: /^await\b/,
     FUNCTION: /^function\b/,
+    ASSERT: /^assert\b\s*(\()?/,
+    SKIP: /^skip\b\s*(\()?/,
+    LEAVE: /^leave\b\s*(\()?/,
 
     CONSTRUCTOR_METHOD: /^constructor|destructor|replicator|creator\b/,
 
@@ -440,6 +463,9 @@ type compiler_sub_scope = {
     in_template_string: boolean,
     path_info_index: number,
     while?: number, // start_index, indicate that currently in a while loop
+    iterate?: 0|1, // indicate that currently in a iterate loop, two steps
+    loop_start?: number, // index indicates loop start
+    jfa_index?: number,
     if?: number, // start_index, indicate that currently in a if condition
     else?: boolean, // currently waiting for else
     value_count?: number, // count inserted values
@@ -1451,7 +1477,7 @@ export class DatexCompiler {
             // __scope_global = 
             if (add_scope_global) SCOPE.uint8[index++] = BinaryCode.SET_VAR_SUB_RESULT;
     
-            // __1234 = 
+            // #1234 = 
             DatexCompiler.builder.insertVariable(SCOPE, var_number, ACTION_TYPE.SET, undefined, BinaryCode.INTERNAL_VAR, index);
 
       
@@ -1876,6 +1902,8 @@ export class DatexCompiler {
                     case "Function": SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_FUNCTION;return;
                     case "Stream": SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_STREAM;return;
                     case "Any": SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_ANY;return;
+                    case "Task": SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_TASK;return;
+                    case "Assertion": SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_ASSERTION;return;
                 }
             }
 
@@ -2099,7 +2127,8 @@ export class DatexCompiler {
                 wait_for_add: false,
                 in_template_string: false,
                 path_info_index: -1,
-                parent_type: type
+                parent_type: type,
+                loop_start: parent_scope.loop_start // copy information from outer loop until overriden
             };
             SCOPE.subscopes.push(SCOPE.inner_scope);
         },
@@ -2427,7 +2456,7 @@ export class DatexCompiler {
         SCOPE.datex = SCOPE.datex.replace(/^[^\S\n]+/, ""); //(/^[^\S\r\n]+/
         SCOPE.last_command_end = false; // reset 'last command was ;'
         
-        let noPlusMinusOp = false;
+        let isEffectiveValue = false;
 
         // END 
         if (!SCOPE.datex) {
@@ -2438,6 +2467,7 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.URL)) {   
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addUrl(m[0], SCOPE);
+            isEffectiveValue = true;
         }
 
         // INSERT data (?)
@@ -2461,7 +2491,7 @@ export class DatexCompiler {
                 let d = SCOPE.data?.[d_index];
                 DatexCompiler.builder.insert(d, SCOPE);
             }
-
+            isEffectiveValue = true;
         }
 
 
@@ -2485,7 +2515,7 @@ export class DatexCompiler {
 
             DatexCompiler.builder.detect_record(SCOPE);
             DatexCompiler.builder.addKey(key, SCOPE);
-            noPlusMinusOp = true;
+            isEffectiveValue = true;
         }
 
 
@@ -2529,11 +2559,52 @@ export class DatexCompiler {
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.RETURN;
         }
 
+        // ITERATION
+        else if (m = SCOPE.datex.match(Regex.ITERATION)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ITERATION;
+        }
+
+
+        // ITERATOR
+        else if (m = SCOPE.datex.match(Regex.ITERATOR)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ITERATOR;
+        }
+
+        // SKIP
+        else if (m = SCOPE.datex.match(Regex.SKIP)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            if (!('loop_start' in  SCOPE.inner_scope)) throw new Datex.CompilerError("Invalid 'skip' command");
+            DatexCompiler.builder.addJmp(SCOPE, BinaryCode.JMP, SCOPE.inner_scope.loop_start);
+            DatexCompiler.builder.valueIndex(SCOPE);
+        }
+
+        // ITERATE
+        else if (m = SCOPE.datex.match(Regex.ITERATE)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            SCOPE.inner_scope.iterate = 0;
+            SCOPE.inner_scope.value_count = 1; 
+
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_START;
+
+            // #iter = iterator
+            DatexCompiler.builder.insertVariable(SCOPE, 'iter', ACTION_TYPE.SET, undefined, BinaryCode.INTERNAL_VAR);
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ITERATOR;
+        }
+
         // WHILE
         else if (m = SCOPE.datex.match(Regex.WHILE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
             SCOPE.inner_scope.while = SCOPE.b_index+1;
-            SCOPE.inner_scope.value_count = 2; 
+            SCOPE.inner_scope.loop_start = SCOPE.b_index+1;
+            SCOPE.inner_scope.value_count = 1; 
 
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_START;
@@ -2587,6 +2658,7 @@ export class DatexCompiler {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_FUNCTION;
+            isEffectiveValue = true;
         }
 
         // \n
@@ -2607,6 +2679,7 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.VOID)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addVoid(SCOPE);
+            isEffectiveValue = true;
         }
 
         // // CODE BLOCK (before CODE BLOCK NO ARGS)
@@ -2648,13 +2721,13 @@ export class DatexCompiler {
 
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
 
-            await DatexCompiler.builder.addScopeBlock(BinaryCode.REMOTE, !!m[1], 0, SCOPE)     
+            await DatexCompiler.builder.addScopeBlock(BinaryCode.REMOTE, !!m[1], 0, SCOPE)
         }
 
         // TRANSFORM
         else if (m = SCOPE.datex.match(Regex.TRANSFORM)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
-            await DatexCompiler.builder.addScopeBlock(BinaryCode.TRANSFORM, !!m[1], 3, SCOPE)     
+            await DatexCompiler.builder.addScopeBlock(BinaryCode.TRANSFORM, !!m[1], 3, SCOPE)
         }
 
 
@@ -2662,6 +2735,7 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.QUASI_VOID)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addVoid(SCOPE);
+            isEffectiveValue = true;
         }
 
         // SUBSCOPE START
@@ -2669,7 +2743,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
          
             DatexCompiler.builder.enter_subscope(SCOPE);
-            noPlusMinusOp = true;
         } 
 
     
@@ -2678,14 +2751,12 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.SYNC)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SYNC;
-            noPlusMinusOp = true;
         }
 
         // STOP_SYNC (<</)
         else if (m = SCOPE.datex.match(Regex.STOP_SYNC)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STOP_SYNC;
-            noPlusMinusOp = true;
         }
 
         
@@ -2694,7 +2765,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STREAM;
-            noPlusMinusOp = true;
         }
 
         // STOP_STREAM
@@ -2702,7 +2772,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STOP_STREAM;
-            noPlusMinusOp = true;
         }
 
         // TYPE (before <)
@@ -2716,7 +2785,6 @@ export class DatexCompiler {
             }
             // normal type
             else DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, m[1], m[2], m[3]?.slice(1))
-            noPlusMinusOp = true;
         }
 
         // COMPARE 
@@ -2725,42 +2793,36 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.EQUAL;
-            noPlusMinusOp = true;
         }
         // ~==
         else if (m = SCOPE.datex.match(Regex.NOT_EQUAL)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.NOT_EQUAL;
-            noPlusMinusOp = true;
         }
         // ==
         else if (m = SCOPE.datex.match(Regex.EQUAL_VALUE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.EQUAL_VALUE;
-            noPlusMinusOp = true;
         }
         // ~=
         else if (m = SCOPE.datex.match(Regex.NOT_EQUAL_VALUE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.NOT_EQUAL_VALUE;
-            noPlusMinusOp = true;
         }
         // >=
         else if (m = SCOPE.datex.match(Regex.GREATER_EQUAL)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.GREATER_EQUAL;
-            noPlusMinusOp = true;
         }
         // <=
         else if (m = SCOPE.datex.match(Regex.LESS_EQUAL)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.LESS_EQUAL;
-            noPlusMinusOp = true;
         }
         // >
         else if (m = SCOPE.datex.match(Regex.GREATER)) {
@@ -2775,7 +2837,6 @@ export class DatexCompiler {
                 DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
                 SCOPE.uint8[SCOPE.b_index++] = BinaryCode.GREATER;
             }
-            noPlusMinusOp = true;
         }
       
         // <
@@ -2783,7 +2844,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.LESS;
-            noPlusMinusOp = true;
         }
       
     
@@ -2795,7 +2855,6 @@ export class DatexCompiler {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.THROW_ERROR;  
-            noPlusMinusOp = true;
         }
 
         // SPREAD (...) = <Tuple>/<Record>
@@ -2804,14 +2863,12 @@ export class DatexCompiler {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.EXTEND;
-            noPlusMinusOp = true;
         }
 
         // Range (..) => <Tuple>
         else if (m = SCOPE.datex.match(Regex.RANGE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.insertByteAtIndex(BinaryCode.RANGE, SCOPE.inner_scope.last_value_index, SCOPE)
-            noPlusMinusOp = true;
         }
   
         // PATH_SEPERATOR (.)
@@ -2831,14 +2888,15 @@ export class DatexCompiler {
                 
                 DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
                 SCOPE.uint8[SCOPE.b_index++] = BinaryCode.WILDCARD;
+                isEffectiveValue = true;
             }
             // default property key (string)
             else if (m = SCOPE.datex.match(Regex.PROPERTY)) {               
                 SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
                 
                 DatexCompiler.builder.addString(m[0], SCOPE);
+                isEffectiveValue = true;
             }
-            noPlusMinusOp = true;
         }
 
         // PATH_REF_SEPERATOR (->)
@@ -2867,7 +2925,6 @@ export class DatexCompiler {
                 
                 DatexCompiler.builder.addString(m[0], _SCOPE);
             }
-            noPlusMinusOp = true;
         }
 
 
@@ -2952,12 +3009,14 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.BOOLEAN)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addBoolean(m[0] == "true" ? true : false, SCOPE);
+            isEffectiveValue = true;
         }
 
         // NULL (check before variable!)
         else if (m = SCOPE.datex.match(Regex.NULL)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addNull(SCOPE);
+            isEffectiveValue = true;
         }
 
         // EMPTY_ARRAY (shortcut)
@@ -2967,6 +3026,7 @@ export class DatexCompiler {
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_ARRAY;
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.VOID;
+            isEffectiveValue = true;
         }
 
         // EMPTY_OBJECT (shortcut)
@@ -2976,6 +3036,7 @@ export class DatexCompiler {
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.STD_TYPE_OBJECT;
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.VOID;
+            isEffectiveValue = true;
         }
 
 
@@ -2987,7 +3048,7 @@ export class DatexCompiler {
             SCOPE.inner_scope.first_element_pos = SCOPE.b_index;
             DatexCompiler.builder.commaIndex(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;  
-            noPlusMinusOp = true;
+
         }
 
         // ARRAY_END
@@ -3000,6 +3061,7 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
 
             DatexCompiler.builder.exit_subscope(SCOPE, BinaryCode.ARRAY_END);
+            isEffectiveValue = true;
             //DatexCompiler.builder.close_current_path(SCOPE); // new path scope
         }
 
@@ -3073,6 +3135,7 @@ export class DatexCompiler {
             DatexCompiler.builder.exit_subscope(SCOPE); // outer subscope
 
             SCOPE.inner_scope.in_template_string = false;
+            isEffectiveValue = true;
         }
 
 
@@ -3084,7 +3147,6 @@ export class DatexCompiler {
             SCOPE.inner_scope.first_element_pos = SCOPE.b_index;
             DatexCompiler.builder.commaIndex(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;  
-            noPlusMinusOp = true;
         }
 
         // OBJECT_END
@@ -3096,6 +3158,7 @@ export class DatexCompiler {
             }
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.exit_subscope(SCOPE, BinaryCode.OBJECT_END);
+            isEffectiveValue = true;
             //DatexCompiler.builder.close_current_path(SCOPE); // new path scope
         }
 
@@ -3135,7 +3198,6 @@ export class DatexCompiler {
             SCOPE.inner_scope.first_element_pos = SCOPE.b_index; // set first element index
             DatexCompiler.builder.commaIndex(SCOPE.b_index, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;  
-            noPlusMinusOp = true;
         }
 
 
@@ -3154,6 +3216,7 @@ export class DatexCompiler {
             }
 
             DatexCompiler.builder.addBuffer(buffer, SCOPE);
+            isEffectiveValue = true;
         }
 
        
@@ -3191,12 +3254,14 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.INFINITY)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addFloat(m[1]?.[0]=='-' ? -Infinity : +Infinity, SCOPE)
+            isEffectiveValue = true;
         }
                 
         // NAN
         else if (m = SCOPE.datex.match(Regex.NAN)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addFloat(NaN, SCOPE)
+            isEffectiveValue = true;
         }
 
         // PERSON
@@ -3205,6 +3270,7 @@ export class DatexCompiler {
             const subspace_string = m[2].substring(1);
             let subspaces = subspace_string ? subspace_string.split(":") : null;
             DatexCompiler.builder.addPersonByNameAndChannel(m[1], subspaces, m[6], null, SCOPE);
+            isEffectiveValue = true;
         }
 
         // BOT   
@@ -3213,6 +3279,7 @@ export class DatexCompiler {
             let all = m[0].substring(1);
             let name_channel = all.split("/");
             DatexCompiler.builder.addBotByNameAndChannel(name_channel[0], null, name_channel[1], null, SCOPE);
+            isEffectiveValue = true;
         }
 
         // INSTITUTION
@@ -3221,6 +3288,7 @@ export class DatexCompiler {
             const subspace_string = m[2].substring(1);
             let subspaces = subspace_string ? subspace_string.split(":") : null;
             DatexCompiler.builder.addInstitutionByNameAndChannel(m[1], subspaces, m[6], null, SCOPE);
+            isEffectiveValue = true;
         }
 
         // ID_ENDPOINT
@@ -3229,6 +3297,7 @@ export class DatexCompiler {
             const subspace_string = m[2].substring(1);
             let subspaces = subspace_string ? subspace_string.split(":") : null;
             DatexCompiler.builder.addIdEndpointByIdAndChannel( Datex.Pointer.hex2buffer(m[1].replace(/[_-]/g, "")), subspaces, m[6], null, SCOPE);
+            isEffectiveValue = true;
         }
 
         // ID_ENDPOINT
@@ -3237,6 +3306,7 @@ export class DatexCompiler {
             const subspace_string = m[2].substring(1);
             let subspaces = subspace_string ? subspace_string.split(":") : null;
             DatexCompiler.builder.addIdEndpointByIdAndChannel(Datex.Addresses.BROADCAST.binary, subspaces, m[6], null, SCOPE);
+            isEffectiveValue = true;
         }
 
         // STRING or ESCAPED_KEY
@@ -3263,6 +3333,7 @@ export class DatexCompiler {
             }
             // is string
             else DatexCompiler.builder.addString(string_or_key, SCOPE);
+            isEffectiveValue = true;
         }
 
 
@@ -3291,7 +3362,7 @@ export class DatexCompiler {
                 // reset
                 DatexCompiler.builder.close_current_path(SCOPE); // new path scope
             }*/
-
+            isEffectiveValue = true;
         }
 
         // FREEZE
@@ -3308,6 +3379,22 @@ export class DatexCompiler {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SEAL;  
+        }
+
+        // HAS
+        else if (m = SCOPE.datex.match(Regex.HAS)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.HAS;  
+        }
+
+        // KEYS
+        else if (m = SCOPE.datex.match(Regex.KEYS)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.KEYS;  
         }
 
         // DELETE pointer (before VARIABLE)
@@ -3390,6 +3477,15 @@ export class DatexCompiler {
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.IMPLEMENTS;  
         }
 
+        // MATCHES
+        else if (m = SCOPE.datex.match(Regex.MATCHES)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.MATCHES;  
+        }
+
+
         // DEBUG
         else if (m = SCOPE.datex.match(Regex.DEBUG)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
@@ -3426,6 +3522,12 @@ export class DatexCompiler {
             await DatexCompiler.builder.addScopeBlock(BinaryCode.DO, !!m[1], 1, SCOPE)  
         }
 
+        // ASSERT
+        else if (m = SCOPE.datex.match(Regex.ASSERT)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            await DatexCompiler.builder.addScopeBlock(BinaryCode.ASSERT, !!m[1], 1, SCOPE)  
+        }
+
         // HOLD
         else if (m = SCOPE.datex.match(Regex.HOLD)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
@@ -3453,6 +3555,7 @@ export class DatexCompiler {
             }
             // insert normally
             else DatexCompiler.builder.addPointerByID(SCOPE, id, action_type, action_specifier)
+            isEffectiveValue = true;
         }
         
         // INTERNAL_VAR or VARIABLE or LABELED_POINTER
@@ -3490,6 +3593,8 @@ export class DatexCompiler {
                 else if (v_name == "root") {base_type = BinaryCode.VAR_ROOT; v_name = undefined}
                 else if (v_name == "origin") {base_type = BinaryCode.VAR_ORIGIN; v_name = undefined}
                 else if (v_name == "remote") {base_type =  BinaryCode.VAR_REMOTE; v_name = undefined}
+                else if (v_name == "it") {base_type =  BinaryCode.VAR_IT; v_name = undefined}
+                else if (v_name == "iter") {base_type =  BinaryCode.VAR_ITER; v_name = undefined}
 
                 else if (v_name == "sender") {if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #sender"); base_type = BinaryCode.VAR_SENDER; v_name = undefined}
                 else if (v_name == "current") {if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #current"); base_type = BinaryCode.VAR_CURRENT; v_name = undefined}
@@ -3507,8 +3612,9 @@ export class DatexCompiler {
                 if (insert_new) DatexCompiler.builder.insertVariable(SCOPE.extract_var_scope, v_name, action_type, action_specifier, base_type)
             }
             // insert normally
-            else DatexCompiler.builder.insertVariable(SCOPE, v_name, action_type, action_specifier, base_type)
+            else DatexCompiler.builder.insertVariable(SCOPE, v_name, action_type, action_specifier, base_type);
             
+            isEffectiveValue = true;
         }
 
 
@@ -3516,7 +3622,6 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.CREATE_POINTER)) {               
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CREATE_POINTER;
-            noPlusMinusOp = true;
         }
 
 
@@ -3525,24 +3630,28 @@ export class DatexCompiler {
         else if (m = SCOPE.datex.match(Regex.UNIT)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addUnit(parseFloat(m[1].replace(/[_ ]/g, "")), SCOPE)
+            isEffectiveValue = true;
         }
 
         // FLOAT (before INT)
         else if (m = SCOPE.datex.match(Regex.FLOAT)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addFloat(parseFloat(m[0].replace(/[_ ]/g, "")), SCOPE)
+            isEffectiveValue = true;
         }
 
         // INT   
         else if (m = SCOPE.datex.match(Regex.INT)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addInt(parseInt(m[0].replace(/[_ ]/g, "")), SCOPE)
+            isEffectiveValue = true;
         }
 
         // HEX   
         else if (m = SCOPE.datex.match(Regex.HEX)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.addInt(parseInt(m[0]), SCOPE)
+            isEffectiveValue = true;
         }
 
         // ASSIGN (=)
@@ -3551,7 +3660,6 @@ export class DatexCompiler {
 
             if (SCOPE.inner_scope.path_info_index == -1) throw new Datex.CompilerError("Invalid assignment");
             else SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_SET;
-            noPlusMinusOp = true;
         }
         
         // ASSIGN_ADD (+=)
@@ -3563,7 +3671,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.ADD, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_SUBTRACT (-=)
@@ -3575,7 +3682,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.SUBTRACT, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_MUTIPLY (*=)
@@ -3587,7 +3693,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.MULTIPLY, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_DIVIDE (*=)
@@ -3599,7 +3704,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.DIVIDE, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_AND (&=)
@@ -3611,7 +3715,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.AND, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_OR (|=)
@@ -3623,7 +3726,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.OR, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
         // ASSIGN_POINTER_VALUE ($=)
@@ -3635,7 +3737,6 @@ export class DatexCompiler {
                 SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.CREATE_POINTER, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
             }
-            noPlusMinusOp = true;
         }
 
 
@@ -3644,7 +3745,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ADD;  
-            noPlusMinusOp = true;
         }
 
         // SUBTRACT
@@ -3652,7 +3752,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBTRACT;  
-            noPlusMinusOp = true;
         }
 
         // MULTIPLY
@@ -3660,7 +3759,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.MULTIPLY;  
-            noPlusMinusOp = true;
         }
 
         // DIVIDE
@@ -3668,7 +3766,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.DIVIDE;  
-            noPlusMinusOp = true;
         }
     
         // OR
@@ -3677,7 +3774,6 @@ export class DatexCompiler {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
          
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.OR;  
-            noPlusMinusOp = true;
         }
 
         // AND
@@ -3685,7 +3781,6 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.AND;  
-            noPlusMinusOp = true;
         }
 
         // NOT
@@ -3693,32 +3788,79 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             SCOPE.uint8[SCOPE.b_index++] = BinaryCode.NOT;  
-            noPlusMinusOp = true;
         }
 
         else {
             throw new Datex.SyntaxError("Invalid token on line "+SCOPE.current_line_nr+" near '" + SCOPE.datex.split("\n")[0] + "'");
         }
 
+        // immediate +/- operation possible
+        if (isEffectiveValue) DatexCompiler.builder.tryPlusOrMinus(SCOPE);
 
-        // immediate +/-
-        if (!noPlusMinusOp) DatexCompiler.builder.tryPlusOrMinus(SCOPE);
 
         // after inserted last value for value_count
-        if (SCOPE.inner_scope?.value_count  === 0) {
+        if (!SCOPE.inner_scope?.value_count) {
 
             let end_index:number;
 
-            if ('while' in SCOPE.inner_scope) {
+            if ('iterate' in SCOPE.inner_scope) {
+                // insert initialisation
+                if (SCOPE.inner_scope.iterate == 0) {
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CLOSE_AND_STORE;  
+                    SCOPE.inner_scope.loop_start = SCOPE.b_index;
+
+                    // ... jtr loop_start (#iter.next());
+                    SCOPE.inner_scope.jfa_index = SCOPE.b_index+1;
+                    DatexCompiler.builder.addJmp(SCOPE,  BinaryCode.JFA);
+
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_START;
+                    DatexCompiler.builder.insertVariable(SCOPE, 'iter', ACTION_TYPE.GET, undefined, BinaryCode.INTERNAL_VAR);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CHILD_GET;
+                    DatexCompiler.builder.addString('next', SCOPE);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.VOID;
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_END;
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CLOSE_AND_STORE;  
+
+                    // #it = #iter->val;
+                    DatexCompiler.builder.insertVariable(SCOPE, 'it', ACTION_TYPE.SET, undefined, BinaryCode.INTERNAL_VAR);
+                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+                    DatexCompiler.builder.insertVariable(SCOPE, 'iter', ACTION_TYPE.GET, undefined, BinaryCode.INTERNAL_VAR);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CHILD_GET;
+                    DatexCompiler.builder.addString('val', SCOPE);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.CLOSE_AND_STORE;  
+
+                    // now wait for iterate block
+                    SCOPE.inner_scope.iterate = 1;
+                    SCOPE.inner_scope.value_count = 1;
+                }
+                // next() + jump instrution at the end
+                else {
+                    // jmp to start
+                    DatexCompiler.builder.addJmp(SCOPE, BinaryCode.JMP, SCOPE.inner_scope.loop_start)
+
+                    // insert end index for jfa end
+                    SCOPE.data_view.setUint32(SCOPE.inner_scope.jfa_index, SCOPE.b_index, true);
+                    
+                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_END;
+                            
+                    delete SCOPE.inner_scope.loop_start;
+                    delete SCOPE.inner_scope.iterate;
+                }
+                
+            }
+
+            else if ('while' in SCOPE.inner_scope) {
                 // jmp start
-                DatexCompiler.builder.addJmp(SCOPE, BinaryCode.JMP, SCOPE.inner_scope.while)
+                DatexCompiler.builder.addJmp(SCOPE, BinaryCode.JMP, SCOPE.inner_scope.loop_start)
 
                 // insert end index for jfa end
-                SCOPE.data_view.setUint32(SCOPE.inner_scope.while+1, SCOPE.b_index, true);
+                SCOPE.data_view.setUint32(SCOPE.inner_scope.loop_start+1, SCOPE.b_index, true);
                 
                 DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
                 SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SUBSCOPE_END;
 
+                delete SCOPE.inner_scope.loop_start;
                 delete SCOPE.inner_scope.while;
             }
             else if ('if' in SCOPE.inner_scope) {
@@ -3858,7 +4000,7 @@ export class DatexCompiler {
                                 SCOPE.data_view.setUint32(1, value.byteLength, true);   // buffer length
                                 SCOPE.uint8.set(new Uint8Array(value), 1+Uint32Array.BYTES_PER_ELEMENT);
                             }
-                            // TODO insert another value
+                            // insert another value
                             else SCOPE.buffer = DatexCompiler.compileValue(value, {}, false);
 
                             controller.enqueue(await DatexCompiler.createBlockFromScope(SCOPE));

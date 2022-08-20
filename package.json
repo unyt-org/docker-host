@@ -1,0 +1,16 @@
+{
+  "name": "unyt-container-manager",
+  "author": "unyt",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "isomorphic-ws": "^5.0.0",
+    "mysql": "^2.18.1",
+    "node-fetch": "^3.2.10",
+    "node-localstorage": "^2.2.1",
+    "node-web-streams": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^18.7.5"
+  }
+}

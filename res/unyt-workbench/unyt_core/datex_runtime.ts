@@ -1034,11 +1034,14 @@ type datex_sub_scope = {
     scope_block_for?: BinaryCode, // type of scope block
     scope_block_vars?: any[], // #0, #1, ... for scope block
     wait_await?: boolean, // await
+    wait_iterator?: boolean, // iterator x
     wait_hold?: boolean, // wait_hold
     wait_extends?:boolean, // x extends y
     wait_implements?:boolean, // x implements y
+    wait_matches?:boolean, // x matches y
     wait_freeze?:boolean, // freeze x
     wait_seal?:boolean, // seal x
+    has_prop?: boolean, // x has y
 
     waiting_for_action?: [type:BinaryCode, parent:any, key:any][], // path waiting for a value
     create_pointer?: boolean, // proxify next value to pointer
@@ -1119,6 +1122,7 @@ export type datex_scope = {
     internal_vars:  { [key: string]: any },
 
     context?: any, // parent object (context), e.g. in Function
+    it?: any, // referenced value (iterator, item, it)
 
     execution_permission: boolean, // can execute functions
     impersonation_permission: boolean, // can do everything the current endpoint can do: make requests to other endpoints
@@ -1167,6 +1171,7 @@ type js_interface_configuration = {
     property_action?: (type:BinaryCode, parent:any, value:any)=>void,
     set_property?: (parent:any, key:any, value:any)=>void,
     get_property?: (parent:any, key:any)=>any,
+    has_property?: (parent:any, key:any)=>boolean,
     delete_property?: (parent:any, key:any)=>void,
     clear?: (parent:any)=>void,
     apply_value?: (parent:any, args:any[])=>Promise<any>,
@@ -1332,6 +1337,12 @@ class JSInterface {
     static handleCount(parent:any, type:Type = Type.getValueDatexType(parent)):number|bigint|(typeof INVALID| typeof NOT_EXISTING) {
         return this.applyMethod(type, parent, "count", [parent]);
     }
+
+    // get the property of a value
+    static handleHasProperty( parent:any, property:any, type:Type = Type.getValueDatexType(parent)):boolean|(typeof INVALID| typeof NOT_EXISTING) {
+        return this.applyMethod(type, parent, "has_property", [parent, property]);
+    }
+    
 
     // get the property of a value
     static handleGetProperty( parent:any, key:any, type:Type = Type.getValueDatexType(parent)):any|(typeof INVALID| typeof NOT_EXISTING) {
@@ -1553,9 +1564,9 @@ export class IOHandler {
     
 
     // redirected from std/print etc.
-    public static stdOutF(params:any[],  endpoint:Datex.Addresses.Target){
-        if(this.e_std_outfs.has(endpoint)) this.e_std_outfs.get(endpoint)(params);
-        else if (this.std_outf) this.std_outf(params);
+    public static async stdOutF(params:any[], endpoint:Datex.Addresses.Target){
+        if(this.e_std_outfs.has(endpoint)) await this.e_std_outfs.get(endpoint)(params);
+        else if (this.std_outf) await this.std_outf(params);
     }
     public static stdOut(params:any[], endpoint:Datex.Addresses.Target){
         if(this.e_std_outs.has(endpoint)) this.e_std_outs.get(endpoint)(params);
@@ -1668,7 +1679,7 @@ export class CodeBlock {
     }
 
     // run the dxb with arguments, executed by a specific endpoint
-    public async execute(variables:{[name:string]:any}, executed_by:Datex.Addresses.Endpoint, context?:any):Promise<any> {
+    public async execute(variables:{[name:string]:any}, executed_by:Datex.Addresses.Endpoint, context?:any, it?:any):Promise<any> {
         
         // generate new header using executor scope header
         const header:dxb_header = {
@@ -1679,7 +1690,7 @@ export class CodeBlock {
         }
 
         // create scope
-        const scope = Runtime.createNewInitialScope(header, variables, this.internal_vars, context);
+        const scope = Runtime.createNewInitialScope(header, variables, this.internal_vars, context, it);
         // update scope buffers
         Runtime.updateScope(scope, this.compiled, header)
         // execute scope
@@ -1707,7 +1718,7 @@ export class CodeBlock {
 // for classes that can have a value applied to it (e.g. DatexFunction)
 // <std:ValueConsumer>
 export interface ValueConsumer {
-    handleApply?: (value:any, SCOPE: datex_scope)=>Promise<any>|any
+    handleApply: (value:any, SCOPE: datex_scope)=>Promise<any>|any
 }
 
 // for reading binary streams or strings (e.g. WritableStream)
@@ -2528,6 +2539,7 @@ export class Pointer<T = any> extends Value<T> {
         // DatexValue: DatexPointer or DatexPointerProperty not valid as object, get the actual value instead
         value = <T|typeof NOT_EXISTING> Value.collapseValue(value,true,true)
 
+
         // is primitive value
         if ((Object(value) !== value && typeof value != "symbol") || value instanceof ArrayBuffer || value instanceof TypedArray || value instanceof NodeBuffer || value instanceof Addresses.Target) {
             
@@ -3256,7 +3268,6 @@ export class Pointer<T = any> extends Value<T> {
     private objProxifyChildren() {
 
         const value = this.value;
-        
         for (let name of this.visible_children ?? Object.keys(value)) {
             // only proxify non-primitive values
             const type = Type.getValueDatexType(value[name])
@@ -4267,6 +4278,15 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
 }
 
 
+export class IterationFunction extends Function {
+
+
+    override handleApply(value: any, SCOPE?: datex_scope) {
+        // don't await result
+        this.handleApply(value, SCOPE);
+    }
+
+}
 
 
 // unit
@@ -4856,8 +4876,9 @@ export class Type<T = any> {
     }
 
     // get parametrized type
-    public getParametrized(parameters:Tuple):Type<T>{
-        return Type.get(this.namespace, this.name, this.variation, parameters);
+    public getParametrized(parameters:Tuple|any[]):Type<T>{
+        if (!(parameters instanceof Tuple)) parameters = new Tuple(...parameters);
+        return Type.get(this.namespace, this.name, this.variation, <Tuple>parameters);
     }
 
     // get type variation
@@ -4865,7 +4886,7 @@ export class Type<T = any> {
         return Type.get(this.namespace, this.name, variation, this.parameters);
     }
 
-    // type check
+    // type check (type is a subtype of this)
     public matchesType(type:any){
         return Type.matchesType(type, this);
     }
@@ -4873,9 +4894,6 @@ export class Type<T = any> {
         return Type.matches(value, this);
     }
 
-    public extends(type: Type) {
-        return Type.extends(this, type);
-    }
 
     public setChildTimeout(child:string, timeout: number) {
         if (!this.children_timeouts) this.children_timeouts = new Map();
@@ -4930,7 +4948,12 @@ export class Type<T = any> {
 
     /** static */
 
-    // type check
+    public static or(...types:Type[]){
+        if (types.length == 1) return types[0]; // no or required
+        return Datex.Type.std.Or.getParametrized(types);
+    }
+
+    // type check (type is a subtype of matches_type)
     public static matchesType(type:Type, matches_type: Type) {
         return matches_type == Type.std.Any || Type._matchesType(type, matches_type) || Type._matchesType(type.root_type, matches_type)
     }
@@ -4944,8 +4967,15 @@ export class Type<T = any> {
             }
             return false;
         }
+        if (type.base_type == Type.std.Or) {
+            if (!type.parameters) return false;
+            for (let t of type.parameters) {
+                if (Type._matchesType(t, matches_type)) return true; // any type matches
+            }
+            return false;
+        }
         // and
-        else if (matches_type.base_type == Type.std.And) {
+        if (matches_type.base_type == Type.std.And) {
             if (!matches_type.parameters) return false;
             for (let t of matches_type.parameters) {
                 if (!Type._matchesType(type, t)) return false; // any type does not match
@@ -5058,13 +5088,13 @@ export class Type<T = any> {
             if (value instanceof NetworkError) return Type.std.NetworkError;
             if (value instanceof RuntimeError) return Type.std.RuntimeError;
             if (value instanceof SecurityError) return Type.std.SecurityError;
-            
+            if (value instanceof AssertionError) return Type.std.AssertionError;
+
             if (value instanceof Error) return Type.std.Error;
     
             if (value instanceof Markdown) return Type.std.Markdown;
             if (value instanceof Date) return Type.std.Time;
             if (value instanceof URL) return Type.std.Url;
-            if (value instanceof Datex.Task) return Type.std.Task;
 
             if (value instanceof Function) return Type.std.Function;
             if (value instanceof Stream) return Type.std.Stream;
@@ -5114,13 +5144,13 @@ export class Type<T = any> {
             if (class_constructor ==  NetworkError || NetworkError.isPrototypeOf(class_constructor)) return Type.std.NetworkError;
             if (class_constructor ==  RuntimeError || RuntimeError.isPrototypeOf(class_constructor)) return Type.std.RuntimeError;
             if (class_constructor ==  SecurityError || SecurityError.isPrototypeOf(class_constructor)) return Type.std.SecurityError;
+            if (class_constructor ==  AssertionError || AssertionError.isPrototypeOf(class_constructor)) return Type.std.AssertionError;
 
             if (class_constructor ==  Error || Error.isPrototypeOf(class_constructor)) return Type.std.Error;
 
             if (class_constructor ==  Markdown || Markdown.isPrototypeOf(class_constructor)) return Type.std.Markdown;
             if (class_constructor ==  Date || Date.isPrototypeOf(class_constructor)) return Type.std.Time;
             if (class_constructor ==  URL || URL.isPrototypeOf(class_constructor)) return Type.std.Url;
-            if (class_constructor ==  Datex.Task || Datex.Task.isPrototypeOf(class_constructor)) return Type.std.Task;
 
             if (class_constructor ==  Function || Function.isPrototypeOf(class_constructor)) return Type.std.Function;
             if (class_constructor ==  Stream || Stream.isPrototypeOf(class_constructor)) return Type.std.Stream;
@@ -5197,6 +5227,9 @@ export class Type<T = any> {
         Not: Type.get<Datex.Addresses.Not>("std:Not"),
         Url: Type.get<Datex.Addresses.Not>("std:Url"),
         Task: Type.get<Date>("std:Task"),
+        Assertion:  Type.get<Date>("std:Assertion"),
+        Iterator: Type.get<Date>("std:Iterator"),
+        Iteration: Type.get<Date>("std:Iteration"), // iteration function, returns iterator
 
         Error: Type.get<Error>("std:Error"),
         SyntaxError: Type.get("std:SyntaxError"),
@@ -5208,6 +5241,7 @@ export class Type<T = any> {
         NetworkError: Type.get("std:NetworkError"),
         RuntimeError: Type.get("std:RuntimeError"),
         SecurityError: Type.get("std:DatexSecurityError"),
+        AssertionError: Type.get("std:AssertionError"),
 
         Datex: Type.get<CodeBlock>("std:Datex"),
 
@@ -5242,14 +5276,20 @@ export class Type<T = any> {
         [BinaryCode.STD_TYPE_RECORD]: Type.std.Record,
         [BinaryCode.STD_TYPE_FUNCTION]: Type.std.Function,
         [BinaryCode.STD_TYPE_STREAM]: Type.std.Stream,
+        [BinaryCode.STD_TYPE_ASSERTION]: Type.std.Assertion,
+        [BinaryCode.STD_TYPE_TASK]: Type.std.Task,
+        [BinaryCode.STD_TYPE_ITERATOR]: Type.std.Iterator,
         [BinaryCode.STD_TYPE_ANY]: Type.std.Any
     }
 }
 
 // add type implementation references
 Type.std.Function.addImplementedType(Type.std.ValueConsumer);
-Type.std.Function.addImplementedType(Type.std.StreamConsumer);
+Type.std.Endpoint.addImplementedType(Type.std.ValueConsumer);
+Type.std.Filter.addImplementedType(Type.std.ValueConsumer);
+Type.std.Assertion.addImplementedType(Type.std.StreamConsumer);
 
+Type.std.Function.addImplementedType(Type.std.StreamConsumer);
 Type.std.Stream.addImplementedType(Type.std.StreamConsumer);
 
 
@@ -5292,6 +5332,65 @@ function _customLogicOperators(object:any) {
 // const type2 = DatexType.get("x").addTemplate(new DatexRecord({x:DatexType.std.Map, xx:DatexType.std.Array}))
 // const type = DatexType.get("x").addTemplate({a:DatexType.std.Int, b:type2})
 // let y = type.createFromTemplate();
+
+export class Iterator<T> {
+
+    // @property
+    val: T;
+
+    internal_iterator: globalThis.Iterator<T>
+
+    constructor(iterator?:globalThis.Iterator<T>) {
+        this.internal_iterator = iterator ?? this.generator();
+    }
+
+    // @property
+    async next(): Promise<boolean> {
+        // use internal JS iterator / generator method
+        let res = await this.internal_iterator.next()
+        if (!res.done) this.val = res.value;
+        return !res.done;
+    }
+
+
+    public static get(value:any) {
+        if (value instanceof Iterator) return value;
+        if (value instanceof Datex.IterationFunction) {
+            console.log("iterator for iteration function", value)
+        }
+        else {
+            if (value instanceof Map) return new Iterator(value.entries());
+            else if (value instanceof Set) return new Iterator(value.values());
+            else return new Iterator(value?.[Symbol.iterator]? value?.[Symbol.iterator]() : [value][Symbol.iterator]()); // create any other iterator or single value iterator
+
+        }
+    }
+
+    protected *generator():Generator<T>{}
+}
+
+
+export class RangeIterator extends Iterator<int> {
+
+    #min:bigint;
+    #max:bigint;
+
+    constructor(min:number|bigint, max:number|bigint) {
+        super();
+
+        this.#min = typeof min == "number" ? BigInt(Math.floor(min)) : min;
+        this.#max = typeof max == "number" ? BigInt(Math.floor(max)) : max;
+
+    }
+
+    protected override *generator() {
+        while (this.#min < this.#max) {
+            yield this.#min;
+            this.#min++;
+        }
+    }
+    
+}
 
 
 /**
@@ -5340,6 +5439,32 @@ function _customLogicOperators(object:any) {
     01 probe
 */ 
 
+
+
+export class Assertion implements ValueConsumer {
+
+    datex:Datex.CodeBlock
+    
+    constructor(datex?:Datex.CodeBlock) {
+        this.datex = datex;
+    }
+
+    async assert(value:any, SCOPE?:Datex.datex_scope){
+        const valid = await this.datex.execute([], SCOPE?.sender, SCOPE?.context, value);
+        if (valid !== true && valid !== VOID) throw new Datex.AssertionError(valid === false ? 'Invalid' : Datex.Runtime.valueToDatexString(valid));
+    }
+
+    handleApply(value: any, SCOPE: datex_scope) {
+        return this.assert(value, SCOPE);
+    }
+}
+
+
+
+// parent class for &,| value compositions (logical formulas)
+export class Composition<T=any> {
+
+}
 
 
 
@@ -5765,7 +5890,12 @@ export namespace Addresses {
         static readonly prefix:target_prefix = "@"
         static readonly type:BinaryCode
 
-
+        // TODO filter
+        handleApply(value:any, SCOPE:datex_scope) {
+            // if (params[0] instanceof Datex.Addresses.Endpoint) return Datex.Addresses.Target.get(this.name, this.subspaces, this.instance, params[0], <any> this.constructor);
+            // else return this;
+        }
+        
         public static getClassFromBinaryCode(binary_code?:BinaryCode): typeof Datex.Addresses.Person | typeof Datex.Addresses.Institution | typeof Datex.Addresses.Bot | typeof Datex.Addresses.IdEndpoint {
             switch (binary_code) {
                 case BinaryCode.PERSON_ALIAS: return Datex.Addresses.Person;
@@ -5991,14 +6121,6 @@ export namespace Addresses {
             else this.__id_endpoint = id_endpoint;
         }
 
-        // TODO filter
-        handleApply(value:any, SCOPE:datex_scope) {
-            // if (params[0] instanceof Datex.Addresses.Endpoint) return Datex.Addresses.Target.get(this.name, this.subspaces, this.instance, params[0], <any> this.constructor);
-            // else return this;
-        }
-        
-
-
         declare private interface_channel_info:{[channel_name:string]:any}
         public setInterfaceChannels(info:{[channel_name:string]:any}){
             this.interface_channel_info = info
@@ -6216,6 +6338,7 @@ export class TypeError extends Error {}
 export class NetworkError extends Error {}
 export class RuntimeError extends Error {}
 export class SecurityError extends Error {}
+export class AssertionError extends Error {}
 
 
 
@@ -6311,6 +6434,7 @@ export class Runtime {
 
         BinaryCode.IMPLEMENTS, 
         BinaryCode.EXTENDS, 
+        BinaryCode.MATCHES, 
 
         BinaryCode.ARRAY_END,
         BinaryCode.SUBSCOPE_END, 
@@ -6347,6 +6471,7 @@ export class Runtime {
         'signed',
         'encrypted',
         'meta',
+        'this',
         'static'
     ])
 
@@ -6737,8 +6862,8 @@ export class Runtime {
         }, new Record({value:Type.std.Object}), null, 0), true, undefined, false).value);
 
         // std/printf (formatted output)
-        this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function((meta,...params:any[])=>{
-            IOHandler.stdOutF(params, meta.sender);
+        this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function(async (meta,...params:any[])=>{
+            await IOHandler.stdOutF(params, meta.sender);
         }, new Record({value:Type.std.Object}), null, 0), true, undefined, false).value);
 
 
@@ -7197,8 +7322,34 @@ export class Runtime {
                     current_scope.push({type:TOKEN_TYPE.VALUE, string: "#this"});
                     break;
                 }
+                case BinaryCode.VAR_IT:  { 
+                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#it"});
+                    break;
+                }
+                case BinaryCode.SET_VAR_ITER:  { 
+                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#it = "});
+                    break;
+                }
+                case BinaryCode.VAR_ITER_ACTION: { 
+                    let action_string = actionToString(uint8[current_index++]) // get action specifier
+                    current_scope.push({string:  "#it" + ` ${action_string}= `});
+                    break;
+                }
+        
+                case BinaryCode.VAR_ITER:  { 
+                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#iter"});
+                    break;
+                }
+                case BinaryCode.SET_VAR_ITER:  { 
+                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#iter = "});
+                    break;
+                }
+                case BinaryCode.VAR_ITER_ACTION: { 
+                    let action_string = actionToString(uint8[current_index++]) // get action specifier
+                    current_scope.push({string:  "#iter" + ` ${action_string}= `});
+                    break;
+                }
 
-                
                 case BinaryCode.SET_VAR_RESULT: { 
                     current_scope.push({string: "#result = "});
                     break;
@@ -7348,6 +7499,18 @@ export class Runtime {
                     break;
                 }
 
+                // HAS
+                case BinaryCode.HAS: {
+                    current_scope.push({string:" has "});
+                    break;
+                }
+
+                // KEYS
+                case BinaryCode.KEYS: {
+                    current_scope.push({string:"keys "});
+                    break;
+                }
+
                 // TEMPLATE
                 case BinaryCode.TEMPLATE: {
                     current_scope.push({string:"template "});
@@ -7372,6 +7535,24 @@ export class Runtime {
                     break;
                 }
 
+                // ITERATOR
+                case BinaryCode.ITERATOR: {
+                    current_scope.push({string:"iterator "});
+                    break;
+                }
+
+                // ITERATION
+                case BinaryCode.ITERATION: {
+                    current_scope.push({string:"iteration "});
+                    break;
+                }
+
+                // ASSERT
+                case BinaryCode.ASSERT: {
+                    current_scope.push({string:"assert "});
+                    break;
+                }
+
                 // AWAIT
                 case BinaryCode.AWAIT: {
                     current_scope.push({string:"await "});
@@ -7393,6 +7574,12 @@ export class Runtime {
                 // IMPLEMENTS
                 case BinaryCode.IMPLEMENTS: {
                     current_scope.push({string:" implements "});
+                    break;
+                }
+
+                // MATCHES
+                case BinaryCode.MATCHES: {
+                    current_scope.push({string:" matches "});
                     break;
                 }
 
@@ -7499,6 +7686,8 @@ export class Runtime {
                 case BinaryCode.STD_TYPE_RECORD:
                 case BinaryCode.STD_TYPE_STREAM:
                 case BinaryCode.STD_TYPE_ANY:
+                case BinaryCode.STD_TYPE_ASSERTION:
+                case BinaryCode.STD_TYPE_TASK:
                 case BinaryCode.STD_TYPE_FUNCTION: {
                     current_scope.push({type: TOKEN_TYPE.VALUE, string: Type.short_types[token].toString()});
                     break;
@@ -8690,6 +8879,13 @@ export class Runtime {
                     else new_value = INVALID;
                     break;
                 }
+                case Type.std.AssertionError: {
+                    if (old_value === VOID) new_value = new AssertionError(null, null);
+                    else if(typeof old_value == "string" || typeof old_value == "number" || typeof old_value == "bigint") new_value = new AssertionError(old_value, null);
+                    else if(old_value instanceof Array) new_value = new AssertionError(old_value[0], old_value[1])
+                    else new_value = INVALID;
+                    break;
+                }
 
                 case Type.std.Markdown: {
                     if (old_value === VOID) new_value = new Markdown();
@@ -9067,6 +9263,7 @@ export class Runtime {
         countValue: (value: any) => bigint,
         getReferencedProperty: (parent: any, key: any) => PointerProperty<any>,
         getProperty: (SCOPE: datex_scope, parent: any, key: any) => any,
+        hasProperty: (SCOPE: datex_scope, parent: any, key: any) => boolean,
         setProperty: (SCOPE: datex_scope, parent: any, key: any, value: any) => void,
         assignAction(SCOPE: datex_scope, action_type: BinaryCode, parent: any, key: any, value: any, current_val?: any): void,
         _removeItemFromArray(arr: any[], value: any): void,
@@ -9254,9 +9451,10 @@ export class Runtime {
                 for (let v of INNER_SCOPE.waiting_vars) {
                     // is set
                     if (v[1] == undefined) {
-                        // el is void -> delete
-                        if (el === VOID) delete SCOPE.inner_scope.root[v[0]];
-                        else SCOPE.inner_scope.root[v[0]] = el; 
+                        // el is void -> delete?
+                        // if (el === VOID) delete SCOPE.inner_scope.root[v[0]];
+                        // else 
+                        SCOPE.inner_scope.root[v[0]] = el; 
                     }
                     else Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], SCOPE.inner_scope.root, v[0], el); // other action on variable
                 }
@@ -9285,6 +9483,7 @@ export class Runtime {
                             SCOPE.result = INNER_SCOPE.result = el; // set new result
                         }
                         else if (v[0] == 'sub_result') INNER_SCOPE.result = el;  // set result of current sub scope
+                        else if (v[0] == 'it') SCOPE.it = el;  // set it of scope
                         else if (v[0] == 'root') {
                             SCOPE.inner_scope.root = el;  // update root for this subscope
                         }
@@ -9307,6 +9506,7 @@ export class Runtime {
                         else if (v[0] == 'sub_result') {parent = INNER_SCOPE; key = 'sub_result'}  // parent is INNER_SCOPE, key is 'sub_result'
                         else if (v[0] == 'root') parent = SCOPE.inner_scope;  // parent is SCOPE.inner_scope, key is 'root';
                         else if (v[0] == 'remote') parent = SCOPE;  // parent is SCOPE, key is 'remote';
+                        else if (v[0] == 'it') parent = SCOPE;  // parent is SCOPE, key is 'it';
 
                         Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], parent, key, el);
                     }
@@ -9391,6 +9591,30 @@ export class Runtime {
             return BigInt(count);
         },
 
+
+        // get count (length) of value
+        hasProperty(SCOPE:datex_scope, parent:any, key:any){
+
+            let has = JSInterface.handleHasProperty(parent, key); 
+
+            if (has == NOT_EXISTING) { 
+                if (parent instanceof Array) {
+                    if (typeof key != "bigint") throw new ValueError("Invalid key for <Array> - must be of type <Int>", SCOPE);
+                    else return key > 0 && key < parent.length;
+                // default hidden properties
+                }
+                else if (typeof parent == "object") {
+                    if (typeof key != "string" && !(parent instanceof Datex.Record)) throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
+                    else if (DEFAULT_HIDDEN_OBJECT_PROPERTIES.has(key) || (parent && !(key in parent))) return false;
+                    else return true; // plain object
+                }
+                else has = INVALID;
+            }
+            
+            if (has == INVALID) throw new ValueError("Cannot check for properties on this value");     
+            else return has;   
+        },
+
         // get parent[key] as DatexPointerProperty if possible
         getReferencedProperty(parent:any, key:any){
             const pointer = Pointer.createOrGet(parent);
@@ -9461,6 +9685,8 @@ export class Runtime {
                 else if (parent instanceof Record && !parent.hasOwnProperty(key)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Record>", SCOPE)
                 // sealed tuple
                 else if (parent instanceof Tuple && !(key in parent)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Tuple>", SCOPE)
+                // sealed or frozen
+                else if ((Object.isSealed(parent) || Object.isFrozen(parent)) && !parent.hasOwnProperty(key)) throw new ValueError("Property '"+key.toString()+"' does not exist", SCOPE)
                 // not a key string in a normal object
                 else if (typeof key != "string" && !(parent instanceof Array) && !(parent instanceof Datex.Record)) throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
                 // default hidden properties
@@ -10023,19 +10249,24 @@ export class Runtime {
                 return;
             }
 
+            if (INNER_SCOPE.wait_iterator) {
+                INNER_SCOPE.active_value = $$(Datex.Iterator.get(el));
+                delete INNER_SCOPE.wait_iterator;
+                return;
+            }
 
             if (INNER_SCOPE.wait_await) {
                 if (el instanceof Datex.Task) {
+                    delete INNER_SCOPE.wait_await;
                     const task = el;
                     INNER_SCOPE.active_value = await task.promise;
                     return;
                 }
                 else if (el instanceof Datex.Tuple) {
+                    delete INNER_SCOPE.wait_await;
                     INNER_SCOPE.active_value = await Promise.all(el.map(v=>v.promise)); // TODO await non-local task
                     return;
-
                 }
-                delete INNER_SCOPE.wait_await;
             }
 
             if (INNER_SCOPE.wait_hold) {
@@ -10146,7 +10377,7 @@ export class Runtime {
                 if (INNER_SCOPE.waiting_range.length < 2) INNER_SCOPE.waiting_range.push(el)
                 // is range closed?
                 if (INNER_SCOPE.waiting_range.length == 2) {
-                    INNER_SCOPE.active_value = Tuple.generateRange(INNER_SCOPE.waiting_range[0], INNER_SCOPE.waiting_range[1]); // new el is the generated range <Tuple>
+                    INNER_SCOPE.active_value = $$(new RangeIterator(INNER_SCOPE.waiting_range[0], INNER_SCOPE.waiting_range[1]))// Tuple.generateRange(INNER_SCOPE.waiting_range[0], INNER_SCOPE.waiting_range[1]); // new el is the generated range <Tuple>
                     INNER_SCOPE.waiting_range = null; // range closed
                 }
             }
@@ -10336,10 +10567,11 @@ export class Runtime {
                 else throw new ValueError("Cannot get subscribers of a non-pointer", SCOPE);
             }
 
+            // <Type> extends <ParentType>
             else if (INNER_SCOPE.wait_extends) {
                 INNER_SCOPE.wait_extends = false;
                 if (INNER_SCOPE.active_value instanceof Type && el instanceof Type) {
-                    INNER_SCOPE.active_value = INNER_SCOPE.active_value.extends(el);
+                    INNER_SCOPE.active_value = el.template && DatexObject.extends(INNER_SCOPE.active_value.template, el.template);
                 }
                 else if (typeof INNER_SCOPE.active_value == "object") {
                     INNER_SCOPE.active_value = DatexObject.extends(INNER_SCOPE.active_value, el);
@@ -10349,12 +10581,36 @@ export class Runtime {
                 else throw new RuntimeError("Invalid 'extends' command", SCOPE);
             }
 
+            // value matches <Type>, @alias matches filter
+            else if (INNER_SCOPE.wait_matches) {
+                INNER_SCOPE.wait_matches = false;
+                if (el instanceof Type) {
+                    INNER_SCOPE.active_value = el.matches(INNER_SCOPE.active_value);
+                }
+                else if (INNER_SCOPE.active_value instanceof Addresses.Endpoint && el instanceof Addresses.Filter) {
+                    INNER_SCOPE.active_value = el.test(INNER_SCOPE.active_value);
+                }
+                else if (INNER_SCOPE.active_value instanceof Addresses.Endpoint && el instanceof Addresses.Endpoint) {
+                    INNER_SCOPE.active_value = el.equals(INNER_SCOPE.active_value);
+                }
+                else if (!("active_value" in INNER_SCOPE)) throw new RuntimeError("Invalid 'matches' command", SCOPE);
+                else throw new RuntimeError("Invalid values for 'matches' command", SCOPE);
+            }
+
+            // <Type> implements <ParentType>
             else if (INNER_SCOPE.wait_implements) {
                 INNER_SCOPE.wait_implements = false;
-                if (!(el instanceof Type)) throw new RuntimeError("'implements' must check against a <Type>", SCOPE);
-                if (!("active_value" in INNER_SCOPE)) throw new RuntimeError("Invalid 'implements' command", SCOPE);
+                if (INNER_SCOPE.active_value instanceof Type && el instanceof Type) {
+                    INNER_SCOPE.active_value = el.matchesType(INNER_SCOPE.active_value)
+                }
+                else throw new RuntimeError("'implements' must check a <Type> against a <Type>", SCOPE);
+                //else if (!("active_value" in INNER_SCOPE)) throw new RuntimeError("Invalid 'implements' command", SCOPE);
+            }
 
-                INNER_SCOPE.active_value = el.matches(INNER_SCOPE.active_value);
+            // [1,2,3] has 1 
+            else if (INNER_SCOPE.has_prop) {
+                INNER_SCOPE.active_value = Runtime.runtime_actions.hasProperty(SCOPE, INNER_SCOPE.active_value, el);
+                delete INNER_SCOPE.has_prop;
             }
 
             else if (INNER_SCOPE.wait_freeze) {
@@ -10445,9 +10701,6 @@ export class Runtime {
 
                 el = Value.collapseValue(el, true, true); // collapse primitive values
                 let val = Value.collapseValue(INNER_SCOPE.active_value, true, true);
-
-                // interpret non-existing active value as 0
-                if (val == undefined) val = 0;
 
                 // negate for subtract
                 if (INNER_SCOPE.operator === BinaryCode.SUBTRACT && (typeof el == "number" || typeof el == "bigint")) el = -el;
@@ -10676,8 +10929,8 @@ export class Runtime {
             else if ("active_value" in INNER_SCOPE) {
                 let val = INNER_SCOPE.active_value;
 
-                // handle all Applyables (<Function>, <Type>, ...)
-                if (val instanceof Function || (val instanceof Datex.Addresses.Endpoint && el instanceof Datex.Addresses.Endpoint)) {
+                // handle all ValueConsumers (<Function>, <Type> TODO?, ...)
+                if (val instanceof Function || val instanceof Datex.Addresses.Target /*|| val instanceof Datex.Addresses.Filter*/ || val instanceof Datex.Assertion) {
                     // insert <Tuple>el or [el], or [] if el==VOID (call without parameters)                    
                     if (val.handleApply) INNER_SCOPE.active_value = await val.handleApply(Value.collapseValue(el), SCOPE);
                     else throw new ValueError("Cannot apply values to this value", SCOPE);
@@ -10700,7 +10953,7 @@ export class Runtime {
 
     }
 
-    static createNewInitialScope(header?:dxb_header, variables?:{[name:string|number]:any}, internal_vars?:{[name:string|number]:any}, context?:any):datex_scope {
+    static createNewInitialScope(header?:dxb_header, variables?:{[name:string|number]:any}, internal_vars?:{[name:string|number]:any}, context?:Object, it?:any):datex_scope {
 
         const scope:datex_scope = {
             sid: header?.sid,
@@ -10726,6 +10979,7 @@ export class Runtime {
             result: VOID, // -> internal variable __result
 
             context: context,
+            it: it,
 
             meta: {},
             remote: {},
@@ -11000,6 +11254,8 @@ export class Runtime {
                         else if (name == "static")      val = StaticScope.scopes;
                         else if (name == "meta")        val = SCOPE.meta;
                         else if (name == "remote")      val = SCOPE.remote;
+                        else if (name == "this")        val = SCOPE.context;
+                        else if (name == "it")          val = SCOPE.it;
 
                         // all other internal variables
                         else if (name in SCOPE.internal_vars) val = SCOPE.internal_vars[name];
@@ -11101,6 +11357,30 @@ export class Runtime {
                     await this.runtime_actions.insertToScope(SCOPE, SCOPE.context ?? SCOPE.inner_scope.root);
                     break;
                 }
+                case BinaryCode.VAR_IT: {
+                    await this.runtime_actions.insertToScope(SCOPE, SCOPE.it);
+                    break;
+                }
+                case BinaryCode.VAR_ITER: {
+                    let val:any;
+                    if ('iter' in SCOPE.internal_vars) val = SCOPE.internal_vars['iter'];
+                    else {
+                        throw new RuntimeError("Internal variable #iter does not exist", SCOPE);
+                    }
+                    // insert to scope
+                    await this.runtime_actions.insertToScope(SCOPE, val);
+                    break;
+                }
+                case BinaryCode.SET_VAR_IT: { 
+                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
+                    SCOPE.inner_scope.waiting_internal_vars.add(['it']);
+                    break;
+                }
+                case BinaryCode.SET_VAR_ITER: { 
+                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
+                    SCOPE.inner_scope.waiting_internal_vars.add(['iter']);
+                    break;
+                }
                 case BinaryCode.SET_VAR_RESULT: { 
                     if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
                     SCOPE.inner_scope.waiting_internal_vars.add(['result']);
@@ -11159,6 +11439,27 @@ export class Runtime {
 
                     if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
                     SCOPE.inner_scope.waiting_internal_vars.add(['remote', action]);
+                    break;
+                }
+
+                case BinaryCode.VAR_IT_ACTION: {
+                    /** wait for buffer */
+                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                    /********************/
+                    let action = SCOPE.buffer_views.uint8[SCOPE.current_index++];
+
+                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
+                    SCOPE.inner_scope.waiting_internal_vars.add(['it', action]);
+                    break;
+                }
+                case BinaryCode.VAR_ITER_ACTION: {
+                    /** wait for buffer */
+                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                    /********************/
+                    let action = SCOPE.buffer_views.uint8[SCOPE.current_index++];
+
+                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
+                    SCOPE.inner_scope.waiting_internal_vars.add(['iter', action]);
                     break;
                 }
 
@@ -11286,6 +11587,13 @@ export class Runtime {
                         )
                     }
 
+                    // ASSERT
+                    else if (INNER_SCOPE.scope_block_for == BinaryCode.ASSERT) {
+                        INNER_SCOPE.scope_block_for = null;
+                        const assertion = $$(new Datex.Assertion(code_block));
+                        await this.runtime_actions.insertToScope(SCOPE, assertion);
+                    }
+
                     // DO
                     else if (INNER_SCOPE.scope_block_for == BinaryCode.DO) {
                         INNER_SCOPE.scope_block_for = null;
@@ -11293,6 +11601,14 @@ export class Runtime {
                         task.run(SCOPE);
                         await this.runtime_actions.insertToScope(SCOPE, task);
                     }
+
+
+                    // ITERATION
+                    else if (INNER_SCOPE.scope_block_for == BinaryCode.ITERATION) {
+                        // TODO
+                        await this.runtime_actions.insertToScope(SCOPE, new IterationFunction(code_block, undefined, undefined, undefined, SCOPE.context));
+                    }
+
 
                     // FUNCTION
                     else if (INNER_SCOPE.scope_block_for == BinaryCode.FUNCTION) {
@@ -11433,6 +11749,26 @@ export class Runtime {
                     break;
                 }
 
+                // ITERATION
+                case BinaryCode.ITERATION: {
+                    SCOPE.inner_scope.scope_block_for = BinaryCode.ITERATION;
+                    SCOPE.inner_scope.scope_block_vars = [];
+                    break;
+                }
+
+                // ITERATOR
+                case BinaryCode.ITERATOR: {
+                    SCOPE.inner_scope.wait_iterator = true;
+                    break;
+                }
+
+                // ASSERT
+                case BinaryCode.ASSERT: {
+                    SCOPE.inner_scope.scope_block_for = BinaryCode.ASSERT;
+                    SCOPE.inner_scope.scope_block_vars = [];
+                    break;
+                }
+
                 // FUNCTION
                 case BinaryCode.FUNCTION: {
                     SCOPE.inner_scope.scope_block_for = BinaryCode.FUNCTION;
@@ -11459,6 +11795,11 @@ export class Runtime {
                     break;
                 }
 
+                // HAS
+                case BinaryCode.HAS: {
+                    SCOPE.inner_scope.has_prop = true;
+                    break;
+                }
 
                 // SEAL
                 case BinaryCode.SEAL: {
@@ -11480,6 +11821,13 @@ export class Runtime {
                 // IMPLEMENTS
                 case BinaryCode.IMPLEMENTS: {
                     SCOPE.inner_scope.wait_implements = true;
+                    break;
+                }
+
+
+                // MATCHES
+                case BinaryCode.MATCHES: {
+                    SCOPE.inner_scope.wait_matches = true;
                     break;
                 }
 
@@ -11683,6 +12031,8 @@ export class Runtime {
                 case BinaryCode.STD_TYPE_RECORD:
                 case BinaryCode.STD_TYPE_STREAM:
                 case BinaryCode.STD_TYPE_ANY:
+                case BinaryCode.STD_TYPE_ASSERTION:
+                case BinaryCode.STD_TYPE_TASK:
                 case BinaryCode.STD_TYPE_FUNCTION: {
                     await this.runtime_actions.insertToScope(SCOPE, Type.short_types[token]);
                     break;
@@ -11902,6 +12252,7 @@ export class Runtime {
                         let ors = new Set<Datex.Addresses.Target | Datex.Addresses.Not<Datex.Addresses.Target>>();
                         for (let m=0; m<ors_nr; m++) {
                             let index = SCOPE.buffer_views.data_view.getInt8(SCOPE.current_index++);
+                            // @ts-ignore TODO old
                             ors.add(index<0 ? Datex.Addresses.Not.get(target_list[-index-1]) : target_list[index-1]);
                         }
                         cnf.add(ors);
@@ -12209,7 +12560,8 @@ Type.std.Map.setJSInterface({
     set_property: (parent:Map<any,any>, key, value) => parent.set(key, value),
     get_property: (parent:Map<any,any>, key) => parent.get(key),
     delete_property: (parent:Map<any,any>, key) => parent.delete(key),
-    
+    has_property: (parent:Map<any,any>, key) => parent.has(key),
+
     clear: (parent:Map<any,any>) => parent.clear(),
 
     count: (parent:Map<any,any>) => parent.size,
@@ -12266,6 +12618,7 @@ Type.std.Set.setJSInterface({
     },
 
     get_property: (parent:Set<any>, key) => NOT_EXISTING,
+    has_property: (parent:Set<any>, key) => parent.has(key),
 
     clear: (parent:Set<any>) => parent.clear(),
 
@@ -12332,15 +12685,32 @@ Type.get("std:Task").setJSInterface({
     //     }
     //     return INVALID;
     // },
-
     is_normal_object: true,
+    proxify_children: true,
     visible_children: new Set(["state", "result"]),
 }).setReplicator(Datex.Task.prototype.replicate)
+
+Type.get("std:Assertion").setJSInterface({
+    class: Datex.Assertion,
+    is_normal_object: true,
+    proxify_children: true,
+    visible_children: new Set(),
+})
+
+Type.get("std:Iterator").setJSInterface({
+    class: Datex.Iterator,
+    is_normal_object: true,
+    proxify_children: true,
+    visible_children: new Set(['val', 'next']),
+})
+
+
 
 Type.get("std:LazyValue").setJSInterface({
     class: Datex.LazyValue,
 
     is_normal_object: true,
+    proxify_children: true,
     visible_children: new Set(["datex"]),
 })
 

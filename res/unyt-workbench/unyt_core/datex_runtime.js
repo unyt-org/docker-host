@@ -845,6 +845,9 @@ export var Datex;
         static handleCount(parent, type = Type.getValueDatexType(parent)) {
             return this.applyMethod(type, parent, "count", [parent]);
         }
+        static handleHasProperty(parent, property, type = Type.getValueDatexType(parent)) {
+            return this.applyMethod(type, parent, "has_property", [parent, property]);
+        }
         static handleGetProperty(parent, key, type = Type.getValueDatexType(parent)) {
             return this.applyMethod(type, parent, "get_property", [parent, key]);
         }
@@ -968,11 +971,11 @@ export var Datex;
         static addScopeResultListener(sid, output_callback) {
             this.scope_result_listeners.set(sid, output_callback);
         }
-        static stdOutF(params, endpoint) {
+        static async stdOutF(params, endpoint) {
             if (this.e_std_outfs.has(endpoint))
-                this.e_std_outfs.get(endpoint)(params);
+                await this.e_std_outfs.get(endpoint)(params);
             else if (this.std_outf)
-                this.std_outf(params);
+                await this.std_outf(params);
         }
         static stdOut(params, endpoint) {
             if (this.e_std_outs.has(endpoint))
@@ -1054,14 +1057,14 @@ export var Datex;
                 this._decompiled = Runtime.decompile(this.compiled, false, false, true, false);
             }
         }
-        async execute(variables, executed_by, context) {
+        async execute(variables, executed_by, context, it) {
             const header = {
                 sender: executed_by,
                 type: DatexProtocolDataType.LOCAL_REQ,
                 executable: true,
                 sid: DatexCompiler.generateSID()
             };
-            const scope = Runtime.createNewInitialScope(header, variables, this.internal_vars, context);
+            const scope = Runtime.createNewInitialScope(header, variables, this.internal_vars, context, it);
             Runtime.updateScope(scope, this.compiled, header);
             return Runtime.simpleScopeExecution(scope);
         }
@@ -2997,6 +3000,12 @@ export var Datex;
         }
     }
     Datex.Function = Function;
+    class IterationFunction extends Function {
+        handleApply(value, SCOPE) {
+            this.handleApply(value, SCOPE);
+        }
+    }
+    Datex.IterationFunction = IterationFunction;
     class Unit extends Number {
         toString() {
             return Runtime.floatToString(Number(this)) + "u";
@@ -3433,6 +3442,8 @@ export var Datex;
                 Type.types.set((this.namespace || "std") + ":" + this.name + "/" + (this.variation ?? ""), this);
         }
         getParametrized(parameters) {
+            if (!(parameters instanceof Tuple))
+                parameters = new Tuple(...parameters);
             return Type.get(this.namespace, this.name, this.variation, parameters);
         }
         getVariation(variation) {
@@ -3443,9 +3454,6 @@ export var Datex;
         }
         matches(value) {
             return Type.matches(value, this);
-        }
-        extends(type) {
-            return Type.extends(this, type);
         }
         setChildTimeout(child, timeout) {
             if (!this.children_timeouts)
@@ -3487,6 +3495,11 @@ export var Datex;
         toJSON() {
             return "dx::" + this.toString();
         }
+        static or(...types) {
+            if (types.length == 1)
+                return types[0];
+            return Datex.Type.std.Or.getParametrized(types);
+        }
         static matchesType(type, matches_type) {
             return matches_type == Type.std.Any || Type._matchesType(type, matches_type) || Type._matchesType(type.root_type, matches_type);
         }
@@ -3500,7 +3513,16 @@ export var Datex;
                 }
                 return false;
             }
-            else if (matches_type.base_type == Type.std.And) {
+            if (type.base_type == Type.std.Or) {
+                if (!type.parameters)
+                    return false;
+                for (let t of type.parameters) {
+                    if (Type._matchesType(t, matches_type))
+                        return true;
+                }
+                return false;
+            }
+            if (matches_type.base_type == Type.std.And) {
                 if (!matches_type.parameters)
                     return false;
                 for (let t of matches_type.parameters) {
@@ -3623,6 +3645,8 @@ export var Datex;
                     return Type.std.RuntimeError;
                 if (value instanceof SecurityError)
                     return Type.std.SecurityError;
+                if (value instanceof AssertionError)
+                    return Type.std.AssertionError;
                 if (value instanceof Error)
                     return Type.std.Error;
                 if (value instanceof Markdown)
@@ -3631,8 +3655,6 @@ export var Datex;
                     return Type.std.Time;
                 if (value instanceof URL)
                     return Type.std.Url;
-                if (value instanceof Datex.Task)
-                    return Type.std.Task;
                 if (value instanceof Function)
                     return Type.std.Function;
                 if (value instanceof Stream)
@@ -3698,6 +3720,8 @@ export var Datex;
                     return Type.std.RuntimeError;
                 if (class_constructor == SecurityError || SecurityError.isPrototypeOf(class_constructor))
                     return Type.std.SecurityError;
+                if (class_constructor == AssertionError || AssertionError.isPrototypeOf(class_constructor))
+                    return Type.std.AssertionError;
                 if (class_constructor == Error || Error.isPrototypeOf(class_constructor))
                     return Type.std.Error;
                 if (class_constructor == Markdown || Markdown.isPrototypeOf(class_constructor))
@@ -3706,8 +3730,6 @@ export var Datex;
                     return Type.std.Time;
                 if (class_constructor == URL || URL.isPrototypeOf(class_constructor))
                     return Type.std.Url;
-                if (class_constructor == Datex.Task || Datex.Task.isPrototypeOf(class_constructor))
-                    return Type.std.Task;
                 if (class_constructor == Function || Function.isPrototypeOf(class_constructor))
                     return Type.std.Function;
                 if (class_constructor == Stream || Stream.isPrototypeOf(class_constructor))
@@ -3777,6 +3799,9 @@ export var Datex;
             Not: Type.get("std:Not"),
             Url: Type.get("std:Url"),
             Task: Type.get("std:Task"),
+            Assertion: Type.get("std:Assertion"),
+            Iterator: Type.get("std:Iterator"),
+            Iteration: Type.get("std:Iteration"),
             Error: Type.get("std:Error"),
             SyntaxError: Type.get("std:SyntaxError"),
             CompilerError: Type.get("std:CompilerError"),
@@ -3787,6 +3812,7 @@ export var Datex;
             NetworkError: Type.get("std:NetworkError"),
             RuntimeError: Type.get("std:RuntimeError"),
             SecurityError: Type.get("std:DatexSecurityError"),
+            AssertionError: Type.get("std:AssertionError"),
             Datex: Type.get("std:Datex"),
             And: Type.get("std:And"),
             Or: Type.get("std:Or"),
@@ -3814,11 +3840,17 @@ export var Datex;
             [BinaryCode.STD_TYPE_RECORD]: Type.std.Record,
             [BinaryCode.STD_TYPE_FUNCTION]: Type.std.Function,
             [BinaryCode.STD_TYPE_STREAM]: Type.std.Stream,
+            [BinaryCode.STD_TYPE_ASSERTION]: Type.std.Assertion,
+            [BinaryCode.STD_TYPE_TASK]: Type.std.Task,
+            [BinaryCode.STD_TYPE_ITERATOR]: Type.std.Iterator,
             [BinaryCode.STD_TYPE_ANY]: Type.std.Any
         };
     }
     Datex.Type = Type;
     Type.std.Function.addImplementedType(Type.std.ValueConsumer);
+    Type.std.Endpoint.addImplementedType(Type.std.ValueConsumer);
+    Type.std.Filter.addImplementedType(Type.std.ValueConsumer);
+    Type.std.Assertion.addImplementedType(Type.std.StreamConsumer);
     Type.std.Function.addImplementedType(Type.std.StreamConsumer);
     Type.std.Stream.addImplementedType(Type.std.StreamConsumer);
     let total_size = 30;
@@ -3845,6 +3877,70 @@ export var Datex;
         current_filters.push(object);
         return parseInt(binary, 2);
     }
+    class Iterator {
+        val;
+        internal_iterator;
+        constructor(iterator) {
+            this.internal_iterator = iterator ?? this.generator();
+        }
+        async next() {
+            let res = await this.internal_iterator.next();
+            if (!res.done)
+                this.val = res.value;
+            return !res.done;
+        }
+        static get(value) {
+            if (value instanceof Iterator)
+                return value;
+            if (value instanceof Datex.IterationFunction) {
+                console.log("iterator for iteration function", value);
+            }
+            else {
+                if (value instanceof Map)
+                    return new Iterator(value.entries());
+                else if (value instanceof Set)
+                    return new Iterator(value.values());
+                else
+                    return new Iterator(value?.[Symbol.iterator] ? value?.[Symbol.iterator]() : [value][Symbol.iterator]());
+            }
+        }
+        *generator() { }
+    }
+    Datex.Iterator = Iterator;
+    class RangeIterator extends Iterator {
+        #min;
+        #max;
+        constructor(min, max) {
+            super();
+            this.#min = typeof min == "number" ? BigInt(Math.floor(min)) : min;
+            this.#max = typeof max == "number" ? BigInt(Math.floor(max)) : max;
+        }
+        *generator() {
+            while (this.#min < this.#max) {
+                yield this.#min;
+                this.#min++;
+            }
+        }
+    }
+    Datex.RangeIterator = RangeIterator;
+    class Assertion {
+        datex;
+        constructor(datex) {
+            this.datex = datex;
+        }
+        async assert(value, SCOPE) {
+            const valid = await this.datex.execute([], SCOPE?.sender, SCOPE?.context, value);
+            if (valid !== true && valid !== Datex.VOID)
+                throw new Datex.AssertionError(valid === false ? 'Invalid' : Datex.Runtime.valueToDatexString(valid));
+        }
+        handleApply(value, SCOPE) {
+            return this.assert(value, SCOPE);
+        }
+    }
+    Datex.Assertion = Assertion;
+    class Composition {
+    }
+    Datex.Composition = Composition;
     let Addresses;
     (function (Addresses) {
         class AndSet extends Set {
@@ -4203,6 +4299,8 @@ export var Datex;
             static targets = new Map();
             static prefix = "@";
             static type;
+            handleApply(value, SCOPE) {
+            }
             static getClassFromBinaryCode(binary_code) {
                 switch (binary_code) {
                     case BinaryCode.PERSON_ALIAS: return Datex.Addresses.Person;
@@ -4373,8 +4471,6 @@ export var Datex;
                 else
                     this.__id_endpoint = id_endpoint;
             }
-            handleApply(value, SCOPE) {
-            }
             setInterfaceChannels(info) {
                 this.interface_channel_info = info;
             }
@@ -4542,6 +4638,9 @@ export var Datex;
     class SecurityError extends Error {
     }
     Datex.SecurityError = SecurityError;
+    class AssertionError extends Error {
+    }
+    Datex.AssertionError = AssertionError;
     async function getFileContent(url, file_path) {
         if (file_path && fs) {
             return new TextDecoder().decode(fs.readFileSync(new URL(file_path, import.meta.url)));
@@ -4602,6 +4701,7 @@ export var Datex;
             BinaryCode.CLOSE_AND_STORE,
             BinaryCode.IMPLEMENTS,
             BinaryCode.EXTENDS,
+            BinaryCode.MATCHES,
             BinaryCode.ARRAY_END,
             BinaryCode.SUBSCOPE_END,
             BinaryCode.OBJECT_END,
@@ -4632,6 +4732,7 @@ export var Datex;
             'signed',
             'encrypted',
             'meta',
+            'this',
             'static'
         ]);
         static callbacks_by_sid = new Map();
@@ -4894,8 +4995,8 @@ export var Datex;
             this.STD_STATIC_SCOPE.setVariable('print', Pointer.create(null, new Function((meta, ...params) => {
                 IOHandler.stdOut(params, meta.sender);
             }, new Record({ value: Type.std.Object }), null, 0), true, undefined, false).value);
-            this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function((meta, ...params) => {
-                IOHandler.stdOutF(params, meta.sender);
+            this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function(async (meta, ...params) => {
+                await IOHandler.stdOutF(params, meta.sender);
             }, new Record({ value: Type.std.Object }), null, 0), true, undefined, false).value);
             this.STD_STATIC_SCOPE.setVariable('printn', Pointer.create(null, new Function((meta, ...params) => {
                 logger.success("std.printn >", ...params);
@@ -5253,6 +5354,32 @@ export var Datex;
                         current_scope.push({ type: TOKEN_TYPE.VALUE, string: "#this" });
                         break;
                     }
+                    case BinaryCode.VAR_IT: {
+                        current_scope.push({ type: TOKEN_TYPE.VALUE, string: "#it" });
+                        break;
+                    }
+                    case BinaryCode.SET_VAR_ITER: {
+                        current_scope.push({ type: TOKEN_TYPE.VALUE, string: "#it = " });
+                        break;
+                    }
+                    case BinaryCode.VAR_ITER_ACTION: {
+                        let action_string = actionToString(uint8[current_index++]);
+                        current_scope.push({ string: "#it" + ` ${action_string}= ` });
+                        break;
+                    }
+                    case BinaryCode.VAR_ITER: {
+                        current_scope.push({ type: TOKEN_TYPE.VALUE, string: "#iter" });
+                        break;
+                    }
+                    case BinaryCode.SET_VAR_ITER: {
+                        current_scope.push({ type: TOKEN_TYPE.VALUE, string: "#iter = " });
+                        break;
+                    }
+                    case BinaryCode.VAR_ITER_ACTION: {
+                        let action_string = actionToString(uint8[current_index++]);
+                        current_scope.push({ string: "#iter" + ` ${action_string}= ` });
+                        break;
+                    }
                     case BinaryCode.SET_VAR_RESULT: {
                         current_scope.push({ string: "#result = " });
                         break;
@@ -5362,6 +5489,14 @@ export var Datex;
                         current_scope.push({ string: "seal " });
                         break;
                     }
+                    case BinaryCode.HAS: {
+                        current_scope.push({ string: " has " });
+                        break;
+                    }
+                    case BinaryCode.KEYS: {
+                        current_scope.push({ string: "keys " });
+                        break;
+                    }
                     case BinaryCode.TEMPLATE: {
                         current_scope.push({ string: "template " });
                         break;
@@ -5378,6 +5513,18 @@ export var Datex;
                         current_scope.push({ string: "do " });
                         break;
                     }
+                    case BinaryCode.ITERATOR: {
+                        current_scope.push({ string: "iterator " });
+                        break;
+                    }
+                    case BinaryCode.ITERATION: {
+                        current_scope.push({ string: "iteration " });
+                        break;
+                    }
+                    case BinaryCode.ASSERT: {
+                        current_scope.push({ string: "assert " });
+                        break;
+                    }
                     case BinaryCode.AWAIT: {
                         current_scope.push({ string: "await " });
                         break;
@@ -5392,6 +5539,10 @@ export var Datex;
                     }
                     case BinaryCode.IMPLEMENTS: {
                         current_scope.push({ string: " implements " });
+                        break;
+                    }
+                    case BinaryCode.MATCHES: {
+                        current_scope.push({ string: " matches " });
                         break;
                     }
                     case BinaryCode.DEBUG: {
@@ -5471,6 +5622,8 @@ export var Datex;
                     case BinaryCode.STD_TYPE_RECORD:
                     case BinaryCode.STD_TYPE_STREAM:
                     case BinaryCode.STD_TYPE_ANY:
+                    case BinaryCode.STD_TYPE_ASSERTION:
+                    case BinaryCode.STD_TYPE_TASK:
                     case BinaryCode.STD_TYPE_FUNCTION: {
                         current_scope.push({ type: TOKEN_TYPE.VALUE, string: Type.short_types[token].toString() });
                         break;
@@ -6426,6 +6579,17 @@ export var Datex;
                             new_value = Datex.INVALID;
                         break;
                     }
+                    case Type.std.AssertionError: {
+                        if (old_value === Datex.VOID)
+                            new_value = new AssertionError(null, null);
+                        else if (typeof old_value == "string" || typeof old_value == "number" || typeof old_value == "bigint")
+                            new_value = new AssertionError(old_value, null);
+                        else if (old_value instanceof Array)
+                            new_value = new AssertionError(old_value[0], old_value[1]);
+                        else
+                            new_value = Datex.INVALID;
+                        break;
+                    }
                     case Type.std.Markdown: {
                         if (old_value === Datex.VOID)
                             new_value = new Markdown();
@@ -6864,10 +7028,7 @@ export var Datex;
                 if (INNER_SCOPE.waiting_vars?.size) {
                     for (let v of INNER_SCOPE.waiting_vars) {
                         if (v[1] == undefined) {
-                            if (el === Datex.VOID)
-                                delete SCOPE.inner_scope.root[v[0]];
-                            else
-                                SCOPE.inner_scope.root[v[0]] = el;
+                            SCOPE.inner_scope.root[v[0]] = el;
                         }
                         else
                             Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], SCOPE.inner_scope.root, v[0], el);
@@ -6890,6 +7051,8 @@ export var Datex;
                             }
                             else if (v[0] == 'sub_result')
                                 INNER_SCOPE.result = el;
+                            else if (v[0] == 'it')
+                                SCOPE.it = el;
                             else if (v[0] == 'root') {
                                 SCOPE.inner_scope.root = el;
                             }
@@ -6918,6 +7081,8 @@ export var Datex;
                             else if (v[0] == 'root')
                                 parent = SCOPE.inner_scope;
                             else if (v[0] == 'remote')
+                                parent = SCOPE;
+                            else if (v[0] == 'it')
                                 parent = SCOPE;
                             Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], parent, key, el);
                         }
@@ -6962,6 +7127,31 @@ export var Datex;
                 else if (count == Datex.INVALID)
                     throw new ValueError("Value uncountable");
                 return BigInt(count);
+            },
+            hasProperty(SCOPE, parent, key) {
+                let has = JSInterface.handleHasProperty(parent, key);
+                if (has == Datex.NOT_EXISTING) {
+                    if (parent instanceof Array) {
+                        if (typeof key != "bigint")
+                            throw new ValueError("Invalid key for <Array> - must be of type <Int>", SCOPE);
+                        else
+                            return key > 0 && key < parent.length;
+                    }
+                    else if (typeof parent == "object") {
+                        if (typeof key != "string" && !(parent instanceof Datex.Record))
+                            throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
+                        else if (DEFAULT_HIDDEN_OBJECT_PROPERTIES.has(key) || (parent && !(key in parent)))
+                            return false;
+                        else
+                            return true;
+                    }
+                    else
+                        has = Datex.INVALID;
+                }
+                if (has == Datex.INVALID)
+                    throw new ValueError("Cannot check for properties on this value");
+                else
+                    return has;
             },
             getReferencedProperty(parent, key) {
                 const pointer = Pointer.createOrGet(parent);
@@ -7021,6 +7211,8 @@ export var Datex;
                         throw new ValueError("Property '" + key.toString() + "' does not exist in <Record>", SCOPE);
                     else if (parent instanceof Tuple && !(key in parent))
                         throw new ValueError("Property '" + key.toString() + "' does not exist in <Tuple>", SCOPE);
+                    else if ((Object.isSealed(parent) || Object.isFrozen(parent)) && !parent.hasOwnProperty(key))
+                        throw new ValueError("Property '" + key.toString() + "' does not exist", SCOPE);
                     else if (typeof key != "string" && !(parent instanceof Array) && !(parent instanceof Datex.Record))
                         throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
                     else if (DEFAULT_HIDDEN_OBJECT_PROPERTIES.has(key) || (parent && !(key in parent)))
@@ -7509,17 +7701,23 @@ export var Datex;
                     INNER_SCOPE.scope_block_vars.push(Pointer.pointerifyValue(el));
                     return;
                 }
+                if (INNER_SCOPE.wait_iterator) {
+                    INNER_SCOPE.active_value = $$(Datex.Iterator.get(el));
+                    delete INNER_SCOPE.wait_iterator;
+                    return;
+                }
                 if (INNER_SCOPE.wait_await) {
                     if (el instanceof Datex.Task) {
+                        delete INNER_SCOPE.wait_await;
                         const task = el;
                         INNER_SCOPE.active_value = await task.promise;
                         return;
                     }
                     else if (el instanceof Datex.Tuple) {
+                        delete INNER_SCOPE.wait_await;
                         INNER_SCOPE.active_value = await Promise.all(el.map(v => v.promise));
                         return;
                     }
-                    delete INNER_SCOPE.wait_await;
                 }
                 if (INNER_SCOPE.wait_hold) {
                     if (el instanceof CodeBlock) {
@@ -7600,7 +7798,7 @@ export var Datex;
                     if (INNER_SCOPE.waiting_range.length < 2)
                         INNER_SCOPE.waiting_range.push(el);
                     if (INNER_SCOPE.waiting_range.length == 2) {
-                        INNER_SCOPE.active_value = Tuple.generateRange(INNER_SCOPE.waiting_range[0], INNER_SCOPE.waiting_range[1]);
+                        INNER_SCOPE.active_value = $$(new RangeIterator(INNER_SCOPE.waiting_range[0], INNER_SCOPE.waiting_range[1]));
                         INNER_SCOPE.waiting_range = null;
                     }
                 }
@@ -7753,7 +7951,7 @@ export var Datex;
                 else if (INNER_SCOPE.wait_extends) {
                     INNER_SCOPE.wait_extends = false;
                     if (INNER_SCOPE.active_value instanceof Type && el instanceof Type) {
-                        INNER_SCOPE.active_value = INNER_SCOPE.active_value.extends(el);
+                        INNER_SCOPE.active_value = el.template && DatexObject.extends(INNER_SCOPE.active_value.template, el.template);
                     }
                     else if (typeof INNER_SCOPE.active_value == "object") {
                         INNER_SCOPE.active_value = DatexObject.extends(INNER_SCOPE.active_value, el);
@@ -7765,13 +7963,33 @@ export var Datex;
                     else
                         throw new RuntimeError("Invalid 'extends' command", SCOPE);
                 }
+                else if (INNER_SCOPE.wait_matches) {
+                    INNER_SCOPE.wait_matches = false;
+                    if (el instanceof Type) {
+                        INNER_SCOPE.active_value = el.matches(INNER_SCOPE.active_value);
+                    }
+                    else if (INNER_SCOPE.active_value instanceof Addresses.Endpoint && el instanceof Addresses.Filter) {
+                        INNER_SCOPE.active_value = el.test(INNER_SCOPE.active_value);
+                    }
+                    else if (INNER_SCOPE.active_value instanceof Addresses.Endpoint && el instanceof Addresses.Endpoint) {
+                        INNER_SCOPE.active_value = el.equals(INNER_SCOPE.active_value);
+                    }
+                    else if (!("active_value" in INNER_SCOPE))
+                        throw new RuntimeError("Invalid 'matches' command", SCOPE);
+                    else
+                        throw new RuntimeError("Invalid values for 'matches' command", SCOPE);
+                }
                 else if (INNER_SCOPE.wait_implements) {
                     INNER_SCOPE.wait_implements = false;
-                    if (!(el instanceof Type))
-                        throw new RuntimeError("'implements' must check against a <Type>", SCOPE);
-                    if (!("active_value" in INNER_SCOPE))
-                        throw new RuntimeError("Invalid 'implements' command", SCOPE);
-                    INNER_SCOPE.active_value = el.matches(INNER_SCOPE.active_value);
+                    if (INNER_SCOPE.active_value instanceof Type && el instanceof Type) {
+                        INNER_SCOPE.active_value = el.matchesType(INNER_SCOPE.active_value);
+                    }
+                    else
+                        throw new RuntimeError("'implements' must check a <Type> against a <Type>", SCOPE);
+                }
+                else if (INNER_SCOPE.has_prop) {
+                    INNER_SCOPE.active_value = Runtime.runtime_actions.hasProperty(SCOPE, INNER_SCOPE.active_value, el);
+                    delete INNER_SCOPE.has_prop;
                 }
                 else if (INNER_SCOPE.wait_freeze) {
                     INNER_SCOPE.wait_freeze = false;
@@ -7849,8 +8067,6 @@ export var Datex;
                 else if (INNER_SCOPE.operator === BinaryCode.ADD || INNER_SCOPE.operator === BinaryCode.SUBTRACT) {
                     el = Value.collapseValue(el, true, true);
                     let val = Value.collapseValue(INNER_SCOPE.active_value, true, true);
-                    if (val == undefined)
-                        val = 0;
                     if (INNER_SCOPE.operator === BinaryCode.SUBTRACT && (typeof el == "number" || typeof el == "bigint"))
                         el = -el;
                     else if (INNER_SCOPE.operator === BinaryCode.SUBTRACT && (el instanceof Unit))
@@ -8047,7 +8263,7 @@ export var Datex;
                 }
                 else if ("active_value" in INNER_SCOPE) {
                     let val = INNER_SCOPE.active_value;
-                    if (val instanceof Function || (val instanceof Datex.Addresses.Endpoint && el instanceof Datex.Addresses.Endpoint)) {
+                    if (val instanceof Function || val instanceof Datex.Addresses.Target || val instanceof Datex.Assertion) {
                         if (val.handleApply)
                             INNER_SCOPE.active_value = await val.handleApply(Value.collapseValue(el), SCOPE);
                         else
@@ -8062,7 +8278,7 @@ export var Datex;
                 }
             },
         };
-        static createNewInitialScope(header, variables, internal_vars, context) {
+        static createNewInitialScope(header, variables, internal_vars, context, it) {
             const scope = {
                 sid: header?.sid,
                 header: header,
@@ -8079,6 +8295,7 @@ export var Datex;
                 sub_scopes: [],
                 result: Datex.VOID,
                 context: context,
+                it: it,
                 meta: {},
                 remote: {},
                 buffer_views: {}
@@ -8265,6 +8482,10 @@ export var Datex;
                                 val = SCOPE.meta;
                             else if (name == "remote")
                                 val = SCOPE.remote;
+                            else if (name == "this")
+                                val = SCOPE.context;
+                            else if (name == "it")
+                                val = SCOPE.it;
                             else if (name in SCOPE.internal_vars)
                                 val = SCOPE.internal_vars[name];
                             else {
@@ -8353,6 +8574,32 @@ export var Datex;
                         await this.runtime_actions.insertToScope(SCOPE, SCOPE.context ?? SCOPE.inner_scope.root);
                         break;
                     }
+                    case BinaryCode.VAR_IT: {
+                        await this.runtime_actions.insertToScope(SCOPE, SCOPE.it);
+                        break;
+                    }
+                    case BinaryCode.VAR_ITER: {
+                        let val;
+                        if ('iter' in SCOPE.internal_vars)
+                            val = SCOPE.internal_vars['iter'];
+                        else {
+                            throw new RuntimeError("Internal variable #iter does not exist", SCOPE);
+                        }
+                        await this.runtime_actions.insertToScope(SCOPE, val);
+                        break;
+                    }
+                    case BinaryCode.SET_VAR_IT: {
+                        if (!SCOPE.inner_scope.waiting_internal_vars)
+                            SCOPE.inner_scope.waiting_internal_vars = new Set();
+                        SCOPE.inner_scope.waiting_internal_vars.add(['it']);
+                        break;
+                    }
+                    case BinaryCode.SET_VAR_ITER: {
+                        if (!SCOPE.inner_scope.waiting_internal_vars)
+                            SCOPE.inner_scope.waiting_internal_vars = new Set();
+                        SCOPE.inner_scope.waiting_internal_vars.add(['iter']);
+                        break;
+                    }
                     case BinaryCode.SET_VAR_RESULT: {
                         if (!SCOPE.inner_scope.waiting_internal_vars)
                             SCOPE.inner_scope.waiting_internal_vars = new Set();
@@ -8411,6 +8658,24 @@ export var Datex;
                         if (!SCOPE.inner_scope.waiting_internal_vars)
                             SCOPE.inner_scope.waiting_internal_vars = new Set();
                         SCOPE.inner_scope.waiting_internal_vars.add(['remote', action]);
+                        break;
+                    }
+                    case BinaryCode.VAR_IT_ACTION: {
+                        if (SCOPE.current_index + 1 > SCOPE.buffer_views.uint8.byteLength)
+                            return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                        let action = SCOPE.buffer_views.uint8[SCOPE.current_index++];
+                        if (!SCOPE.inner_scope.waiting_internal_vars)
+                            SCOPE.inner_scope.waiting_internal_vars = new Set();
+                        SCOPE.inner_scope.waiting_internal_vars.add(['it', action]);
+                        break;
+                    }
+                    case BinaryCode.VAR_ITER_ACTION: {
+                        if (SCOPE.current_index + 1 > SCOPE.buffer_views.uint8.byteLength)
+                            return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                        let action = SCOPE.buffer_views.uint8[SCOPE.current_index++];
+                        if (!SCOPE.inner_scope.waiting_internal_vars)
+                            SCOPE.inner_scope.waiting_internal_vars = new Set();
+                        SCOPE.inner_scope.waiting_internal_vars.add(['iter', action]);
                         break;
                     }
                     case BinaryCode.VAR: {
@@ -8495,11 +8760,19 @@ export var Datex;
                             INNER_SCOPE.scope_block_for = null;
                             await this.runtime_actions.insertToScope(SCOPE, Value.collapseValue(await Pointer.transformMultipleAsync(INNER_SCOPE.scope_block_vars, () => code_block.execute([], SCOPE.sender))));
                         }
+                        else if (INNER_SCOPE.scope_block_for == BinaryCode.ASSERT) {
+                            INNER_SCOPE.scope_block_for = null;
+                            const assertion = $$(new Datex.Assertion(code_block));
+                            await this.runtime_actions.insertToScope(SCOPE, assertion);
+                        }
                         else if (INNER_SCOPE.scope_block_for == BinaryCode.DO) {
                             INNER_SCOPE.scope_block_for = null;
                             const task = $$(new Datex.Task(code_block));
                             task.run(SCOPE);
                             await this.runtime_actions.insertToScope(SCOPE, task);
+                        }
+                        else if (INNER_SCOPE.scope_block_for == BinaryCode.ITERATION) {
+                            await this.runtime_actions.insertToScope(SCOPE, new IterationFunction(code_block, undefined, undefined, undefined, SCOPE.context));
                         }
                         else if (INNER_SCOPE.scope_block_for == BinaryCode.FUNCTION) {
                             INNER_SCOPE.scope_block_for = null;
@@ -8581,6 +8854,20 @@ export var Datex;
                         SCOPE.inner_scope.scope_block_vars = [];
                         break;
                     }
+                    case BinaryCode.ITERATION: {
+                        SCOPE.inner_scope.scope_block_for = BinaryCode.ITERATION;
+                        SCOPE.inner_scope.scope_block_vars = [];
+                        break;
+                    }
+                    case BinaryCode.ITERATOR: {
+                        SCOPE.inner_scope.wait_iterator = true;
+                        break;
+                    }
+                    case BinaryCode.ASSERT: {
+                        SCOPE.inner_scope.scope_block_for = BinaryCode.ASSERT;
+                        SCOPE.inner_scope.scope_block_vars = [];
+                        break;
+                    }
                     case BinaryCode.FUNCTION: {
                         SCOPE.inner_scope.scope_block_for = BinaryCode.FUNCTION;
                         SCOPE.inner_scope.scope_block_vars = [];
@@ -8599,6 +8886,10 @@ export var Datex;
                         SCOPE.inner_scope.wait_hold = true;
                         break;
                     }
+                    case BinaryCode.HAS: {
+                        SCOPE.inner_scope.has_prop = true;
+                        break;
+                    }
                     case BinaryCode.SEAL: {
                         SCOPE.inner_scope.wait_seal = true;
                         break;
@@ -8613,6 +8904,10 @@ export var Datex;
                     }
                     case BinaryCode.IMPLEMENTS: {
                         SCOPE.inner_scope.wait_implements = true;
+                        break;
+                    }
+                    case BinaryCode.MATCHES: {
+                        SCOPE.inner_scope.wait_matches = true;
                         break;
                     }
                     case BinaryCode.DEBUG: {
@@ -8756,6 +9051,8 @@ export var Datex;
                     case BinaryCode.STD_TYPE_RECORD:
                     case BinaryCode.STD_TYPE_STREAM:
                     case BinaryCode.STD_TYPE_ANY:
+                    case BinaryCode.STD_TYPE_ASSERTION:
+                    case BinaryCode.STD_TYPE_TASK:
                     case BinaryCode.STD_TYPE_FUNCTION: {
                         await this.runtime_actions.insertToScope(SCOPE, Type.short_types[token]);
                         break;
@@ -9130,6 +9427,7 @@ export var Datex;
         set_property: (parent, key, value) => parent.set(key, value),
         get_property: (parent, key) => parent.get(key),
         delete_property: (parent, key) => parent.delete(key),
+        has_property: (parent, key) => parent.has(key),
         clear: (parent) => parent.clear(),
         count: (parent) => parent.size,
         keys: (parent) => [...parent.keys()],
@@ -9178,6 +9476,7 @@ export var Datex;
             }
         },
         get_property: (parent, key) => Datex.NOT_EXISTING,
+        has_property: (parent, key) => parent.has(key),
         clear: (parent) => parent.clear(),
         count: (parent) => parent.size,
         keys: (parent) => [...parent],
@@ -9209,11 +9508,25 @@ export var Datex;
     Type.get("std:Task").setJSInterface({
         class: Datex.Task,
         is_normal_object: true,
+        proxify_children: true,
         visible_children: new Set(["state", "result"]),
     }).setReplicator(Datex.Task.prototype.replicate);
+    Type.get("std:Assertion").setJSInterface({
+        class: Datex.Assertion,
+        is_normal_object: true,
+        proxify_children: true,
+        visible_children: new Set(),
+    });
+    Type.get("std:Iterator").setJSInterface({
+        class: Datex.Iterator,
+        is_normal_object: true,
+        proxify_children: true,
+        visible_children: new Set(['val', 'next']),
+    });
     Type.get("std:LazyValue").setJSInterface({
         class: Datex.LazyValue,
         is_normal_object: true,
+        proxify_children: true,
         visible_children: new Set(["datex"]),
     });
 })(Datex || (Datex = {}));

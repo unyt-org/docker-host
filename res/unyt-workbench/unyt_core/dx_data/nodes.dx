@@ -58,15 +58,15 @@
     # quetheb (temporary)
 
     [
-        *quetheb, {
+        @+quetheb, {
             channels: {
                 websocket: 'quetheb.unyt.cc',
                 http: 'quetheb.unyt.cc'
             },
             
             keys: [
-                "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE9w3u5E42oJmtrogI+Kn/6xeWPduw2lajlC2j859g29XEO8A8NGdtsdQTvaUiCr8BYtAI7G5KHMCbhaLT3f2JoRi78zlVfwTegn0YBfCHaHblP+bZijCMQtBKGMCp0J0n",
-                "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAxx21umTpC6/v3bw1R3merS6LSdLbmnz1Ck96YsfkCcZmhC9zuAtBPtmL1jBTUyvTTLgubpC/a/3J0Jc+TBadvzVDWUjk/EwlZ7/J6Gtxkplp7ZRxgD5HunGLiTpTpNCvA5dQfeodcvKehYJJay1PMoHH5fAWCQv/rhkqGIofrvrhJOOrABhu+uKNE6zPB4GZ5cObO933Qu7C+/frmJCad64vt6wU3+ueqpKNTT76w8TxkXZkiWn5jMMmUtIUHMsdy4v7HGTjrthSR9p2IcUStK7uhEFYDgcDJyC/2cVeK9rXo8J6eLYsDdk1BnBOgWjly/LZU94zgMzYi8hkN/HjhsMhIh/8403osSg8fDCWgzFhJ5ky086TOe82uv7S+I3uJATptHRBG9G63cZ2ctfS/wV7NyKs5iSWrKXdp8c2PAuIt0JmOxeRsUtU0MTjyI52+k1dTi+V6s0ietzqBsk1Y27BH0CaGiczfmgUuGeewVxW/T4tpBdli2xpZogsD5cLUAzWwzsHFo3oqShhaF71wa3RbTFYpZ1vJiOH9bYdO5wV2+eHQ3vumtwizLjc4K6eZgOA/b7vQ46RY8khKC1I7vAeJQiFxdFxpZuHSqARvRFPHBX8QidCTnnwBZHYzd5WFbxrua60JtSx/7KSP9Cm5M9cfYcqP0sXzDwc4/6K1dcCAwEAAQ=="
+                "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEHwdE5GA5u1EiFBmSi+5+wO/4jxaBW8m6EL9GkCdc06sEvoB7AfoPm0BrxRwD147bt6zETqOdq/O+OZOWjQhCf9NNsTzJ5w3A3MzL2GSGx7ZQ77w0Myg/lBslzsew5Smt",
+                "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA6D7n2auC02yK1QUzTgbZxjqpcqGtoiivbDSQhbHbe8nI4NJhHcf8bjsSpc1kD1xDHqLLj6ETouBttNnwun3U58r55qg1S1wAoCgtIu24KvMhEYN0lHOtX53iAdGvFVtETNF7z1YOYzIRSNo5pojcGAsDtWZ4fjiMy27gOQHTf3svzalqfgmb9bhaMFUG32Ko+5G4jgmTRMAnRTWa6SmxlO+vztvTrNbbb2g1GzGWyIDaALw1cGhe5RGWvBMc4qWUMYauqBVZVM+4W4hoQ+vtBRokn/FRjEge7xiswOK41ecadZ80AVW9mij4aFapKb+4r/l4I2IfsOQBb+ExdT3JjV3+OzGmUkH5OPVqN2mkqO+1BV0U5U+lq70TjfLQp6m74oKs0mN1Bm6P+dQiIgmGMmjnRcNIqxjoaqSB6NBYQMfJrCEriPznjgj4hc/MeaZcPQcL1N/aSj5YF6w4YLnqibvqFyhHrXCUuWQWqkpjYsb4XASHpqaVlTWWLFSRVzPZiqPfKES9lQnRAvH0mdgnjSCZLptpY6Njo5tzvT44meP8ZxUTm1xB4iHynpIIFl7ePH2sRxdlgrpFQ5LD7K9SjIbf0sIlseHL1QeBImdsOuCSwm9MPI/eqoZk6+PSf+jkrc5/Vb2qtrDkFqeKtFzGKm3WBbX/62ooAsExdQQ21kkCAwEAAQ=="
             ]
         }
     ],

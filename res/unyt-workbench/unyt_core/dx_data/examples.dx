@@ -1,3 +1,92 @@
+# iteration
+iterate (0..20) (
+    if (((<Int>#it) > 6) & ((<Int>#it) < 15)) skip;
+    print #it;
+)
+
+# accumulate
+sum = 0;
+max = 100;
+iterate (1..max) (sum += #it);
+sum
+
+(c:#current) function () # set location of function execution with call_location permission attribute
+
+# checking commands, return true or false
+matches
+implements
+extends
+has
+
+# return a runtime property of a value
+type
+origin
+count
+keys
+
+# special scopes
+do
+assert
+function
+await
+
+# returning
+return
+end
+
+# clone a value
+value
+
+# modify the runtime behaviour of a value
+seal
+freeze
+
+# create a new pointer value 
+transform
+$$
+
+# flow commands (compiler side)
+if
+else
+while
+iterate
+
+
+
+
+(<Player>|<Enemy>) & <Attackable> & assert (keys #it has 'name')
+assert (#it == true) (x)
+
+assert (
+    if (#it > 10) 'Too big'
+    else if (#it < 0) 'Too small'
+) (42)
+
+
+assertIsString = assert type #it == <String>;
+assertIsString 234;
+
+assertIsString = assert if (type #it ~= <String>) 'not a string';
+assertIsString 'string';
+assertIsString 234;
+
+iterate [1,2,3,4] (
+    print #it;
+)
+
+# use (std, @unyt.game, <@+unyt.game:Player>);
+# <@+unyt.game:Player> == @+unyt.game::<Player>
+<Player2> matches (<Player>|<Enemy>) & <Attackable>
+
+@jonas::player matches <Player>
+
+<Function((<String>,<String>),<String>)>
+<Function(<Int>,<String>)>
+<Function(<Tuple(<Float>)>,<String>)>
+<Function(...<Float>,<String>)>
+<Function((x:<String>, ...<Float>),<String>)>
+#args
+
 (x = @+unyt.nodes.europe.central :: do (sleep 1000; 1+20);
 await x
 

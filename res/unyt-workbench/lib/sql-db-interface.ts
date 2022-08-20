@@ -1,5 +1,4 @@
-import {meta} from "../unyt_core/datex_js_class_adapter.js";
-import {scope, expose, sync, template, property} from "../unyt_core/legacy_decorators.js";
+import {scope, expose, sync, template, property, meta} from "../unyt_core/legacy_decorators.js";
 
 // @ts-ignore
 import mysql from 'mysql';
@@ -66,18 +65,19 @@ function customTypeCast(field, next) {
 // db handler version 2
 @scope("sql") export abstract class SQL {
 
-    private static active_connections = new Map<Datex.Addresses.Endpoint, Map<string, SQLConnection>>();
+    private static active_connections = new WeakMap<Datex.Addresses.Endpoint, Map<string, SQLConnection>>();
 
     private static connectionOptionsToString(connection_options:connection_options) {
         return connection_options.user + "@" + connection_options.host + ":" + connection_options.port + ":" + connection_options.database + "&" + connection_options.password;
     }
 
-    @expose static async connect(connection_options: connection_options, @meta meta) {
+    @meta(1)
+    @expose static async connect(connection_options: connection_options, meta:Datex.datex_meta) {
         let c_string = this.connectionOptionsToString(connection_options);
 
-        // already has connection? 
+        // already has connection?
         if (this.active_connections.get(meta.sender)?.has(c_string)) {
-            logger.success("using active SQL conncection");
+            logger.success("using active SQL conncection for " + meta.sender);
             return this.active_connections.get(meta.sender).get(c_string);
         }
 
@@ -98,7 +98,6 @@ function customTypeCast(field, next) {
 
     connection_options:connection_options
     client:any
-    @property connected = false
 
     constructor(connection_options: connection_options) {
         logger.success("creating connection:", connection_options);
@@ -106,28 +105,13 @@ function customTypeCast(field, next) {
     }
 
     async connect() {
-        return new Promise<void>((resolve, reject)=>{
-            this.connection_options.typeCast = customTypeCast;
-            this.client = mysql.createConnection(this.connection_options);
-
-            this.client.on("error", (e)=>{
-                logger.error(e);
-                if (e.code = "PROTOCOL_CONNECTION_LOST") this.connected = false;
-            });
-
-            this.client.connect( err => {
-                if (err) reject(err);
-                else {
-                    this.connected = true;
-                    resolve();
-                }
-            });
-        })
+        this.connection_options.typeCast = customTypeCast;
+        this.client = mysql.createPool(this.connection_options);
     }
 
     // public methods
     @property async query(query_string:string, query_params?:any[]): Promise<any> {
-        if (!this.client || !this.connected) await this.connect();
+        if (!this.client) await this.connect();
 
         console.log("QUERY:", query_string, query_params);
         return new Promise((resolve, reject)=>{

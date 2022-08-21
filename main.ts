@@ -226,7 +226,8 @@ enum ContainerStatus {
 
 }
 
-const containers: Map<Datex.Addresses.Endpoint, Set<Container>> = (await eternal(Datex.Type.std.Map)).setAutoDefault(Set);
+
+const containers = (await eternal(Map<Datex.Addresses.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info("containers", containers)
 
 

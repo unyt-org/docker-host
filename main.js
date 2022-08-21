@@ -256,7 +256,7 @@ ContainerManager = __decorate([
     root_extension,
     scope
 ], ContainerManager);
-const containers = (await eternal(Datex.Type.std.Map)).setAutoDefault(Set);
+const containers = (await eternal((Map))).setAutoDefault(Set);
 logger.info("containers", containers);
 function execCommand(command) {
     return new Promise((resolve, reject) => {

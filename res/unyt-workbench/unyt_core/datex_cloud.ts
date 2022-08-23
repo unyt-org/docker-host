@@ -11,7 +11,7 @@
 
 import DatexInterfaceManager, { DatexCommonInterface } from "./datex_client.js"
 import { DatexCompiler, DatexProtocolDataType } from "./datex_compiler.js";
-import { Datex, storage } from "./datex_runtime.js";
+import { Datex, f } from "./datex_runtime.js";
 
 // @ts-ignore
 //const storage: Storage = client_type!="browser" ? new ((await import("node-localstorage")).default.LocalStorage)('./keys') : (await import("./lib/localforage/localforage.js")).default; 
@@ -19,6 +19,8 @@ import { Datex, storage } from "./datex_runtime.js";
 
 import Logger from "./logger.js";
 const logger = new Logger("DATEX Cloud");
+
+
 
 // entry point to connect to the datex network
 export default class DatexCloud {
@@ -58,7 +60,7 @@ export default class DatexCloud {
     // connect to cloud, say hello with public key
     // if local_cache=false, a new endpoint is created and not saved in the cache, even if an endpoint is stored in the cache
     // TODO problem: using same keys as stored endpoint!
-    public static async connect(endpoint?:Datex.Addresses.Endpoint, id_endpoint?:Datex.Addresses.IdEndpoint, local_cache = true, sign_keys?:[string|CryptoKey,string|CryptoKey], enc_keys?:[string|CryptoKey,string|CryptoKey], via_node?:Datex.Addresses.Bot) {
+    public static async connect(endpoint?:Datex.Addresses.Endpoint, id_endpoint?:Datex.Addresses.IdEndpoint, local_cache = true, sign_keys?:[ArrayBuffer|CryptoKey,ArrayBuffer|CryptoKey], enc_keys?:[ArrayBuffer|CryptoKey,ArrayBuffer|CryptoKey], via_node?:Datex.Addresses.Bot) {
 
         // load runtime, own endpoint, nodes
         endpoint = await this.init(endpoint, id_endpoint, local_cache, sign_keys, enc_keys)
@@ -92,39 +94,48 @@ export default class DatexCloud {
 
 
     // only init, don't (re)connect
-    public static async init(endpoint?:Datex.Addresses.Endpoint, id_endpoint?:Datex.Addresses.IdEndpoint, local_cache = true, sign_keys?:[string|CryptoKey,string|CryptoKey], enc_keys?:[string|CryptoKey,string|CryptoKey]):Promise<Datex.Addresses.Endpoint>  {
+    public static async init(endpoint?:Datex.Addresses.Endpoint, id_endpoint?:Datex.Addresses.IdEndpoint, local_cache = true, sign_keys?:[ArrayBuffer|CryptoKey,ArrayBuffer|CryptoKey], enc_keys?:[ArrayBuffer|CryptoKey,ArrayBuffer|CryptoKey]):Promise<Datex.Addresses.Endpoint>  {
 
+        let keys:Datex.Crypto.ExportedKeySet;
 
         // load/create endpoint from cache?
         if (!endpoint) {
-            if (local_cache) [endpoint, sign_keys, enc_keys] = await this.getLocalEndpointAndKeys();
+            if (local_cache) {
+                [endpoint, keys] = await this.getLocalEndpointAndKeys();
+                sign_keys = keys.sign;
+                enc_keys = keys.encrypt;
+            }
             else endpoint = <Datex.Addresses.Endpoint>Datex.Addresses.Target.get(this.createEndpointId());
         } 
         // load/create keys, even if endpoint was provided?
-        if (!sign_keys || !enc_keys) [sign_keys, enc_keys] = await this.generateKeys();
-        else { // new keys were provided, save in storage
-            let sign_key_base64   = typeof sign_keys[1] == "string" ? sign_keys[1] : await Datex.Crypto.exportPrivateKey(sign_keys[1])
-            let dec_key_base64    = typeof enc_keys[1] == "string" ?  enc_keys[1] : await Datex.Crypto.exportPrivateKey(enc_keys[1]);
-            let verify_key_base64 = typeof sign_keys[0] == "string" ? sign_keys[0] : await Datex.Crypto.exportPublicKey(sign_keys[0]);
-            let enc_key_base64    = typeof enc_keys[0] == "string" ? enc_keys[0] : await Datex.Crypto.exportPublicKey(enc_keys[0]);
-
-            if (local_cache) {
-                await storage.setItem("verify_key",  verify_key_base64);
-                await storage.setItem("sign_key", sign_key_base64);
-                await storage.setItem("enc_key",  enc_key_base64);
-                await storage.setItem("dec_key", dec_key_base64);
-            }
+        if (!sign_keys || !enc_keys) {
+            keys = await this.getKeysOrGenerateNew();
+            sign_keys = keys.sign;
+            enc_keys = keys.encrypt;
+        }
+        else if (local_cache) { // new keys were provided, save in storage
+            const keys:Datex.Crypto.ExportedKeySet = {
+                sign: [
+                    sign_keys[0] instanceof ArrayBuffer ? sign_keys[0] : await Datex.Crypto.exportPublicKey(sign_keys[0]),
+                    sign_keys[1] instanceof ArrayBuffer ? sign_keys[1] : await Datex.Crypto.exportPrivateKey(sign_keys[1]),
+                ],
+                encrypt: [
+                    enc_keys[0] instanceof ArrayBuffer ? enc_keys[0] : await Datex.Crypto.exportPublicKey(enc_keys[0]),
+                    enc_keys[1] instanceof ArrayBuffer ? enc_keys[1] : await Datex.Crypto.exportPrivateKey(enc_keys[1]),
+                ]
+            }    
         }
      
         // bind id endpoint to endpoint
         if (endpoint && !endpoint.id_endpoint){ 
-            id_endpoint = id_endpoint ?? Datex.Addresses.IdEndpoint.get((local_cache ? await storage.getItem("id_endpoint") : undefined) ?? this.createEndpointId(), null, endpoint.instance);
+            id_endpoint = id_endpoint ?? ( (local_cache ? <Datex.Addresses.IdEndpoint>await Datex.Storage.getConfigValue("id_endpoint") : null) ?? f(this.createEndpointId()) ).getInstance(endpoint.instance);
             endpoint.setIdEndpoint(id_endpoint);
         }
 
         if (local_cache) {
-            await storage.setItem("endpoint", endpoint.toString());
-            await storage.setItem("id_endpoint", endpoint.id_endpoint.toString());
+            await Datex.Storage.setConfigValue("endpoint", endpoint)
+            await Datex.Storage.setConfigValue("id_endpoint", endpoint.id_endpoint)
+            await Datex.Storage.setConfigValue('keys', keys);
         }
 
         // start runtime + set endpoint
@@ -153,54 +164,50 @@ export default class DatexCloud {
         return `@@${Datex.Pointer.buffer2hex(new Uint8Array(id.buffer))}`;
     }
 
-    public static async getLocalEndpointAndKeys():Promise<[Datex.Addresses.Endpoint, [string,string], [string,string]]> {
+    public static async getLocalEndpointAndKeys():Promise<[Datex.Addresses.Endpoint, Datex.Crypto.ExportedKeySet]> {
         let endpoint:Datex.Addresses.Endpoint;
 
         // is ROUDINI node & has no endpoint name
-        if (globalThis.process?.env?.UNYT_NAME && !await storage.getItem("endpoint")) {
-            await storage.setItem("endpoint", "*" + process.env.UNYT_NAME.replace("ROUDINI-", "").replace(/\./g, "-"));
+        if (globalThis.process?.env?.UNYT_NAME && !await Datex.Storage.hasConfigValue("endpoint")) {
+            await Datex.Storage.setConfigValue("endpoint", f(`@+${process.env.UNYT_NAME.replace("ROUDINI-", "").replace(/\./g, "-")}`));
         }
-
-        let endpoint_string:Datex.endpoint_name;
         
         // create new endpoint
-        if (!(await storage.getItem("endpoint"))) endpoint_string = this.createEndpointId()
+        if (!await Datex.Storage.hasConfigValue("endpoint")) endpoint = await this.createAndSaveNewEndpoint();
         // existing endpoint already in cache
-        else endpoint_string = <Datex.endpoint_name>await storage.getItem("endpoint")
-
-        // create endpoint
-        try {
-            endpoint = <Datex.Addresses.Endpoint>Datex.Addresses.Target.get(endpoint_string);
-        } catch (e) {
-            // invalid endpoint name
-            logger.error("currently saved endpoint is invalid");
-            // create new endpoint
-            endpoint_string = this.createEndpointId();
-            endpoint = <Datex.Addresses.Endpoint>Datex.Addresses.Target.get(endpoint_string);
+        else {
+            try {endpoint = await Datex.Storage.getConfigValue("endpoint");}
+            catch (e) {
+                logger.error("Error getting Config Value 'endpoint'");
+                endpoint = await this.createAndSaveNewEndpoint();
+            }
         }
 
-        // save valid id
-        storage.setItem("endpoint", endpoint_string);
+        if (!(endpoint instanceof Datex.Addresses.Endpoint)) {
+            logger.error("Config Value 'endpoint' is not of type <Endpoint>");
+            endpoint = await this.createAndSaveNewEndpoint();
+        } 
    
         // return endpoint + keys
-        return [endpoint, ... await this.generateKeys()];
+        return [endpoint, await this.getKeysOrGenerateNew()];
     }
 
-    private static async generateKeys(): Promise<[[string, string],[string, string]]>{
-        // create new?
-        if (!await storage.getItem("verify_key") || !await storage.getItem("sign_key") || !await storage.getItem("enc_key") || !await storage.getItem("dec_key")) {
-            let keys = await Datex.Crypto.createOwnKeys();
-            await storage.setItem("verify_key",  keys[0]);
-            await storage.setItem("sign_key", keys[1]);
-            await storage.setItem("enc_key",  keys[2]);
-            await storage.setItem("dec_key", keys[3]);
+    private static async createAndSaveNewEndpoint(){
+        const endpoint = f(this.createEndpointId());
+        await Datex.Storage.setConfigValue('endpoint', endpoint);
+        return endpoint;
+    }
+
+    private static async getKeysOrGenerateNew(): Promise<Datex.Crypto.ExportedKeySet>{
+        // get existing sign + enc keys
+        let keys:Datex.Crypto.ExportedKeySet = await Datex.Storage.getConfigValue('keys');
+        // invalid, create new
+        if (!keys || !keys.sign?.[0] || !keys.sign?.[1] || !keys.encrypt?.[0] || !keys.encrypt?.[1]) {
+            logger.info("creating new keys");
+            keys = await Datex.Crypto.createOwnKeys();
         }
 
-        // get sign + enc keys
-        let sign_keys:[string,string] = [await storage.getItem("verify_key"), await storage.getItem("sign_key")];
-        let enc_keys:[string,string] = [await storage.getItem("enc_key"), await storage.getItem("dec_key")]
-
-        return [sign_keys, enc_keys]
+        return keys;
     }
 
     // handle nodes
@@ -244,7 +251,7 @@ export default class DatexCloud {
 
     public static async sayHello(node:Datex.Addresses.Endpoint = Datex.Runtime.main_node){
         // TODO REPLACE, only temporary as placeholder to inform router about own public keys
-        let keys = Datex.Crypto.getOwnPublicKeysBase64();
+        let keys = Datex.Crypto.getOwnPublicKeysExported();
         await Datex.Runtime.datexOut(['?', [keys], {type:DatexProtocolDataType.HELLO, sign:false, flood:true, __routing_ttl:1}], undefined, undefined, false, false)
         // send with plain endpoint id as sender
         await Datex.Runtime.datexOut(['?', [keys], {type:DatexProtocolDataType.HELLO, sign:false, flood:true, force_id:true, __routing_ttl:1}], undefined, undefined, false, false)

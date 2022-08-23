@@ -31,12 +31,55 @@ SSHRelayServer = __decorate([
 ], SSHRelayServer);
 export { SSHRelayServer };
 let SSHConnection = class SSHConnection {
-    host;
-    port;
-    username;
-    out_stream = new Datex.Stream();
-    in_stream = new Datex.Stream();
     constructor(host, port, username, passsword, private_key) {
+        Object.defineProperty(this, "host", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Object.defineProperty(this, "port", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Object.defineProperty(this, "username", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Object.defineProperty(this, "out_stream", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Datex.Stream()
+        });
+        Object.defineProperty(this, "in_stream", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Datex.Stream()
+        });
+        Object.defineProperty(this, "passsword", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Object.defineProperty(this, "private_key", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Object.defineProperty(this, "internal_stream", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
         this.host = host;
         this.port = port;
         this.username = username;
@@ -44,9 +87,6 @@ let SSHConnection = class SSHConnection {
         this.private_key = private_key;
         this.pipeInStream();
     }
-    passsword;
-    private_key;
-    internal_stream;
     async pipeInStream() {
         const reader = this.in_stream.getReader();
         let next;

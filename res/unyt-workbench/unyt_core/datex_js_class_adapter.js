@@ -7,33 +7,6 @@ if (!Symbol['metadata'])
     Symbol['metadata'] = Symbol('metadata');
 export const METADATA = Symbol['metadata'];
 export class Decorators {
-    static IS_EXPOSED = Symbol("IS_EXPOSED");
-    static IS_REMOTE = Symbol("IS_REMOTE");
-    static IS_EACH = Symbol("IS_EACH");
-    static IS_SYNC = Symbol("IS_SYNC");
-    static IS_ANONYMOUS = Symbol("IS_ANONYMOUS");
-    static IS_SEALED = Symbol("IS_SEALED");
-    static ANONYMIZE = Symbol("ANONYMIZE");
-    static PROPERTY = Symbol("PROPERTY");
-    static SERIALIZE = Symbol("SERIALIZE");
-    static ALLOW_FILTER = Symbol("ALLOW_FILTER");
-    static SEND_FILTER = Symbol("SEND_FILTER");
-    static SCOPE_NAME = Symbol("SCOPE_NAME");
-    static ROOT_EXTENSION = Symbol("ROOT_EXTENSION");
-    static ROOT_VARIABLE = Symbol("ROOT_VARIABLE");
-    static DOCS = Symbol("DOCS");
-    static META_INDEX = Symbol("META_INDEX");
-    static SIGN = Symbol("SIGN");
-    static ENCRYPT = Symbol("ENCRYPT");
-    static NO_RESULT = Symbol("NO_RESULT");
-    static TIMEOUT = Symbol("TIMEOUT");
-    static OBSERVER = Symbol("OBSERVER");
-    static SCHEDULER = Symbol("SCHEDULER");
-    static FORCE_TYPE = Symbol("FORCE_TYPE");
-    static FROM_TYPE = Symbol("FROM_TYPE");
-    static CONSTRUCTOR = Symbol("CONSTRUCTOR");
-    static REPLICATOR = Symbol("REPLICATOR");
-    static DESTRUCTOR = Symbol("DESTRUCTOR");
     static expose(value, name, kind, is_static, is_private, setMetadata, getMetadata, params = []) {
         if (kind != "method" && kind != "field")
             logger.error("Cannot use @expose for value '" + name.toString() + "'");
@@ -266,6 +239,168 @@ export class Decorators {
         filter.appendFilter(new_filter);
     }
 }
+Object.defineProperty(Decorators, "IS_EXPOSED", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_EXPOSED")
+});
+Object.defineProperty(Decorators, "IS_REMOTE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_REMOTE")
+});
+Object.defineProperty(Decorators, "IS_EACH", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_EACH")
+});
+Object.defineProperty(Decorators, "IS_SYNC", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_SYNC")
+});
+Object.defineProperty(Decorators, "IS_ANONYMOUS", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_ANONYMOUS")
+});
+Object.defineProperty(Decorators, "IS_SEALED", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("IS_SEALED")
+});
+Object.defineProperty(Decorators, "ANONYMIZE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("ANONYMIZE")
+});
+Object.defineProperty(Decorators, "PROPERTY", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("PROPERTY")
+});
+Object.defineProperty(Decorators, "SERIALIZE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("SERIALIZE")
+});
+Object.defineProperty(Decorators, "ALLOW_FILTER", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("ALLOW_FILTER")
+});
+Object.defineProperty(Decorators, "SEND_FILTER", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("SEND_FILTER")
+});
+Object.defineProperty(Decorators, "SCOPE_NAME", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("SCOPE_NAME")
+});
+Object.defineProperty(Decorators, "ROOT_EXTENSION", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("ROOT_EXTENSION")
+});
+Object.defineProperty(Decorators, "ROOT_VARIABLE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("ROOT_VARIABLE")
+});
+Object.defineProperty(Decorators, "DOCS", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("DOCS")
+});
+Object.defineProperty(Decorators, "META_INDEX", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("META_INDEX")
+});
+Object.defineProperty(Decorators, "SIGN", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("SIGN")
+});
+Object.defineProperty(Decorators, "ENCRYPT", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("ENCRYPT")
+});
+Object.defineProperty(Decorators, "NO_RESULT", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("NO_RESULT")
+});
+Object.defineProperty(Decorators, "TIMEOUT", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("TIMEOUT")
+});
+Object.defineProperty(Decorators, "OBSERVER", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("OBSERVER")
+});
+Object.defineProperty(Decorators, "SCHEDULER", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("SCHEDULER")
+});
+Object.defineProperty(Decorators, "FORCE_TYPE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("FORCE_TYPE")
+});
+Object.defineProperty(Decorators, "FROM_TYPE", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("FROM_TYPE")
+});
+Object.defineProperty(Decorators, "CONSTRUCTOR", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("CONSTRUCTOR")
+});
+Object.defineProperty(Decorators, "REPLICATOR", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("REPLICATOR")
+});
+Object.defineProperty(Decorators, "DESTRUCTOR", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: Symbol("DESTRUCTOR")
+});
 globalThis.Decorators = Decorators;
 const initialized_static_scope_classes = new Map();
 function staticScopeClass(original_class) {
@@ -308,7 +443,7 @@ function staticScopeClass(original_class) {
             if (typeof current_value == "function") {
                 let meta_index = getMetaParamIndex(original_class, name);
                 let params = getMethodParams(original_class, name, meta_index);
-                let dx_function = Datex.Pointer.proxifyValue(new Datex.Function(current_value, params, null, meta_index, original_class, null), true, undefined, false, true);
+                let dx_function = Datex.Pointer.proxifyValue(new Datex.Function(null, current_value, Datex.Runtime.endpoint, params, null, meta_index, original_class, null), true, undefined, false, true);
                 static_scope.setVariable(name, dx_function);
             }
             else {
@@ -383,7 +518,7 @@ function staticScopeClass(original_class) {
             }
             return method.call(_this, ...args);
         };
-        let dx_function = Datex.Pointer.proxifyValue(new Datex.Function(proxy_method, params, null, meta_index, original_class, null), true, undefined, false, true);
+        let dx_function = Datex.Pointer.proxifyValue(new Datex.Function(null, proxy_method, Datex.Runtime.endpoint, params, null, meta_index, original_class, null), true, undefined, false, true);
         each_scope[name] = dx_function;
     }
     if (static_scope) {
@@ -434,7 +569,7 @@ export function createTemplateClass(original_class, type, sync = true) {
     return sync_auto_cast_class;
 }
 function getMethodParams(target, method_name, meta_param_index) {
-    let record = new Datex.Record();
+    let tuple = new Datex.Tuple();
     let method_params = Reflect.getMetadata && Reflect.getMetadata("design:paramtypes", target, method_name);
     const function_body = target[method_name]?.toString();
     const args_strings = function_body?.match(/^[^(]*\((.*)\)/)?.[1]?.split(",");
@@ -450,10 +585,10 @@ function getMethodParams(target, method_name, meta_param_index) {
                 i++;
                 continue;
             }
-            record[names[i++]] = Datex.Type.getClassDatexType(param);
+            tuple.set(names[i++], Datex.Type.getClassDatexType(param));
         }
     }
-    return record;
+    return tuple;
 }
 function getMetaParamIndex(target, method_name) {
     return target[METADATA]?.[Decorators.META_INDEX]?.public?.[method_name] ??
@@ -477,7 +612,7 @@ export function proxyClass(original_class, type, auto_sync = true) {
     const new_class = new Proxy(original_class, {
         construct(target, args, newTarget) {
             if (new_class == newTarget) {
-                return type.cast(new Datex.Tuple(...args), undefined, undefined, auto_sync);
+                return type.cast(new Datex.Tuple(args), undefined, undefined, auto_sync);
             }
             else
                 return Reflect.construct(target, args, newTarget);

@@ -34,7 +34,7 @@ const logger = new Logger("ssh relay");
     @constructor async construct(){
         // read from in_stream -> internal_stream
         const reader = this.in_stream.getReader();
-        let next:ReadableStreamDefaultReadResult<ArrayBuffer>;
+        let next:ReadableStreamReadResult<ArrayBuffer>;
         while (true) {
             next = await reader.read();
             if (next.done) return;

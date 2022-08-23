@@ -1,3 +1,57 @@
+### EXAMPLE SCRIPT STRUCTURE ###
+
+# global initializations (skipped if already initialized)
+# can be called in another scope/script, because everything is global
+<Struct> := (
+    a: <String>
+    b: <Int/u8>
+);
+<OtherType> := @remote::<OtherType>; # subject to change
+$xf01 := [1,2,3];
+$xf02 := "123412432134"
+
+$func := function (a:<String>) (
+    sleep 1000;
+    a + 'y134tgtb';
+)
+
+
+# code (always executed)
+$xf01 += 12;
+@dxy :: print (1,2,3,4);
+$func('12345')
+
+####################################
+
+
+
+$AABB := <Map>(); # create pointer or load existing (also with label)
+$AABB = <Map>(); # set pointer value (if type matches and pointer exists)
+
+x = <Set>[1,2,3]; # create <Set> by calling constructor (create [1,2,3] first, then call)
+x = recreate <Set>[1,2,3]; # create <Set> by casting value to type (create <Set>() first, than apply [1,2,3])
+
+
+<oString> = <String> & <Player> & (
+    concat: <Function>
+)
+
+default <oString> '123' & (a:56)
+
+constructor <oString> (
+
+)
+
+oString = $$('1234567') & <Player>() & (
+    concat: function (x) (#this+x)
+)
+p2 = print & (context:$232349)
+
+
+function <String> to <String> (
+    'it = (#it)'
+)
+
 # iteration
 iterate (0..20) (
     if (((<Int>#it) > 6) & ((<Int>#it) < 15)) skip;

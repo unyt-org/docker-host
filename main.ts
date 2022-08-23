@@ -15,43 +15,45 @@ enum ContainerStatus {
 	STARTING = 1,
 	RUNNING = 2,
 	STOPPING = 3,
-	FAILED = 4
+	FAILED = 4,
+	INITIALIZING = 5
 }
 
 // parent class for all types of containers
 @sync class Container {
 
-	protected logger:Logger
-	protected initialized = false;
+	protected logger:Logger;
+	#initialized = false;
 
 	// docker container image + id
 	@property image: string
+	@property container_name: string = "Container"
+	@property name: string = "Container"
 	@property id: string = '0';
 
 	@property owner: Datex.Addresses.Endpoint
-	@property status: ContainerStatus = 0
+	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
 
-	protected get container_name(){
-		return `${this.image}-inst-${this.id}`;
-	}
+	uniqueID() {
+		return 'xxxx-xxxx-xxxx-xxxx-xxxx'.replace(/[xy]/g, function(c) {
+			var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+			return v.toString(16);
+		});
+	  }
 
-	constructor(image:string, owner: Datex.Addresses.Endpoint) {}
-	@constructor construct(image:string, owner: Datex.Addresses.Endpoint) {
-		this.image = image;
+	constructor(owner: Datex.Addresses.Endpoint) {}
+	@constructor construct(owner: Datex.Addresses.Endpoint) {
 		this.owner = owner;
+		this.container_name = this.uniqueID();
 		this.logger = new Logger(this);
 	}
 	@replicator replicate(){
 		this.logger = new Logger(this);
-		this.initialized = true;
+		this.#initialized = true;
 		this.updateAfterReplicate();
 	}
 
 	@property async start(){
-		this.logger.info("Starting Container " + this.container_name);
-
-		// STARTING ...
-		this.status = ContainerStatus.STARTING;
 
 		// start => RUNNING or FAILED
 		const running = await this.handleStart();
@@ -62,14 +64,29 @@ enum ContainerStatus {
 	}
 
 	// create docker for the first time
-	public async init(){
+	protected async init(){
+		if (this.#initialized) return true;
+
+		// INITIALIZING ...
+		this.status = ContainerStatus.INITIALIZING;
+
+		// STOPPED (default state) or FAILED
+		const initialized = await this.handleInit();
+		if (initialized) this.status = ContainerStatus.STOPPED;
+		else this.status = ContainerStatus.FAILED;
+
+		this.#initialized = initialized;
+
+		return initialized;
+	}
+
+	protected async handleInit(){
 		try {
 			await execCommand(`docker run -d --name ${this.container_name} ${this.image}`)
 		} catch (e) {
-			this.logger.error("error while creating container")
+			this.logger.error("error while creating container",e);
 			return false;
 		}
-		this.initialized = true;
 		return true;
 	}
 
@@ -80,10 +97,13 @@ enum ContainerStatus {
 	}
 
 	protected async handleStart(){
-		// first init docker container (only once)
-		if (!this.initialized) {
-			if (!await this.init()) return false;
-		}
+		// first init docker container (if not yet initialized)
+		if (!await this.init()) return false;
+
+		this.logger.info("Starting Container " + this.container_name);
+
+		// STARTING ...
+		this.status = ContainerStatus.STARTING;
 
 		// start the container
 		try {
@@ -142,16 +162,45 @@ enum ContainerStatus {
 
 	@property config: EndpointConfig
 
-	// only one instance for each workbench docker container image
-	protected override get container_name(){
-		return `${this.image}`;
+	constructor(owner: Datex.Addresses.Endpoint, config: EndpointConfig) {super(owner)}
+	@constructor constructWorkbenchContanier(owner: Datex.Addresses.Endpoint, config: EndpointConfig) {
+		this.construct(owner)
+		this.config = config;
+		this.name = "unyt Workbench"
 	}
 
-	constructor(id:string, owner: Datex.Addresses.Endpoint, config: EndpointConfig) {super(id,owner)}
-	@constructor constructWorkbenchContanier(id:string, owner: Datex.Addresses.Endpoint, config: EndpointConfig) {
-		this.construct(id, owner)
-		this.config = config;
-		this.logger = new Logger(this);
+	// custom workbench container init
+	override async handleInit(){
+		try {
+			const username = "user"; // TODO other usernames?
+			const config_exported = Datex.Runtime.valueToDatexString(this.config, true, true, true);
+	
+			this.image = 'unyt-workbench-' + this.config.endpoint.toString().replaceAll('@','').toLowerCase();
+	
+			logger.info("image: " + this.image);
+			logger.info("config: " + config_exported);
+			logger.info("username: " + username);
+	
+			// create new config directory to copy to docker
+			const tmp_dir = `res/config-files-${new Date().getTime()}`
+			await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
+			const writer = fs.createWriteStream(`${tmp_dir}/endpoint.dx`)
+			writer.write(config_exported);
+			writer.close();
+	
+			// create docker container
+			await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${this.image} .`)
+	
+			// remove tmp directory
+			await execCommand(`rm -r ${tmp_dir}`);
+		}
+
+		catch (e) {
+			this.logger.error("Error initializing container",e);
+			return false;
+		}
+
+		return super.handleInit();
 	}
 
 	override async handleStart(){
@@ -173,6 +222,51 @@ enum ContainerStatus {
 	}
 }
 
+
+@sync class RemoteImageContainer extends Container {
+
+	@property version:string
+	@property url:string
+
+	constructor(owner: Datex.Addresses.Endpoint, url: string, version?:string) {super(owner)}
+	@constructor constructRemoteImageContainer(owner: Datex.Addresses.Endpoint, url: string, version?: string) {
+		this.construct(owner)
+		this.version = version;
+		this.url = url;
+		this.name = url;
+	}
+
+	// update docker image
+	@property async update(){
+		try {
+			this.image = `${this.url}${this.version?':'+this.version:''}`;
+			await execCommand(`docker pull ${this.image}`);
+		}
+
+		catch (e) {
+			this.logger.error("Error initializing container",e);
+			return false;
+		}
+		return true;
+	}
+
+	// custom workbench container init
+	override async handleInit(){
+		if (!await this.update()) return false;
+		return super.handleInit();
+	}
+
+	// custom start
+	override async handleStart(){
+		// always pull image first
+		if (!await this.update()) return false;
+
+		return super.handleStart();
+	}
+}
+
+
+
 @root_extension @scope class ContainerManager {
 
 	@meta(0)
@@ -184,38 +278,31 @@ enum ContainerStatus {
 	@expose static async createWorkbenchContainer(meta:Datex.datex_meta):Promise<WorkbenchContainer>{
 		logger.info("Creating new Workbench Container for " + meta.sender);
 
-		// config
+		// create config
 		const config = new EndpointConfig();
 		config.endpoint = Datex.Addresses.Endpoint.getNewEndpoint();
 
-		// docker parameters
-		const config_exported = Datex.Runtime.valueToDatexString(config, true, true, true);
-		const image_name = 'unyt-workbench-' + config.endpoint.toString().replaceAll('@','').toLowerCase();
-		const username = meta.sender.toString().replaceAll('@','');
+		// init and start WorkbenchContainer
+		const container = new WorkbenchContainer(meta.sender, config);
+		container.start();
 
-		logger.info("id: " + image_name);
-		logger.info("config: " + config_exported);
-		logger.info("username: " + username);
-
-		// create new config directory to copy to docker
-		const tmp_dir = `res/config-files-${new Date().getTime()}`
-		await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
-		const writer = fs.createWriteStream(`${tmp_dir}/endpoint.dx`)
-		writer.write(config_exported);
-		writer.close();
-
-		// create docker container
-		await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${image_name} .`)
-
-		// remove tmp directory
-		await execCommand(`rm -r ${tmp_dir}`);
-
-		// create WorkbenchContainer
-		const container = new WorkbenchContainer(image_name, meta.sender, config);
-		container.start(); // start in background
-
-		// add container
+		// link container to requesting endpoint
 		this.addContainer(meta.sender, container);
+
+		return container;
+	}
+
+	@meta(1)
+	@expose static async createRemoteImageContainer(url:string, meta:Datex.datex_meta):Promise<RemoteImageContainer>{
+		logger.info("Creating new Remote Image Container for " + meta.sender, url);
+
+		// init and start RemoteImageContainer
+		const container = new RemoteImageContainer(meta.sender, url);
+		container.start();
+
+		// link container to requesting endpoint
+		this.addContainer(meta.sender, container);
+		console.log(containers);
 
 		return container;
 	}
@@ -225,7 +312,6 @@ enum ContainerStatus {
 	}
 
 }
-
 
 const containers = (await eternal(Map<Datex.Addresses.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info("containers", containers)

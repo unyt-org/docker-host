@@ -374,7 +374,7 @@ export class DatexDatabaseAdapter implements Datex.PointerSource {
 
         // create class
         const table_class = class {};
-        const template = new Datex.Record();
+        const template = new Datex.Tuple();
         let has_dx_ptr_column = false;
 
         let primary_key_name:string

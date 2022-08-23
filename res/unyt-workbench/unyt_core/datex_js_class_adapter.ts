@@ -571,7 +571,7 @@ function staticScopeClass(original_class:Function) {
                 let params = getMethodParams(original_class, name, meta_index);
         
                 let dx_function = Datex.Pointer.proxifyValue(
-                    new Datex.Function(current_value, params, null, meta_index, original_class, null), true, undefined, false, true) ; // generate <Function>
+                    new Datex.Function(null, current_value, Datex.Runtime.endpoint, params, null, meta_index, original_class, null), true, undefined, false, true) ; // generate <Function>
 
                 static_scope.setVariable(name, dx_function); // add <Function> to static scope
             }
@@ -687,7 +687,7 @@ function staticScopeClass(original_class:Function) {
         //params?.unshift([type, "this"])
 
         let dx_function = Datex.Pointer.proxifyValue(
-            new Datex.Function(proxy_method, params, null, meta_index, original_class, null), true, undefined, false, true) ; // generate <Function>
+            new Datex.Function(null, proxy_method, Datex.Runtime.endpoint, params, null, meta_index, original_class, null), true, undefined, false, true) ; // generate <Function>
 
         each_scope[name] = dx_function // add <Function> to static scope
 
@@ -789,8 +789,8 @@ export function createTemplateClass(original_class:{ new(...args: any[]): any; }
 
 
 // Reflect metadata / decorator metadata, get parameters & types if available
-function getMethodParams(target:Function, method_name:string, meta_param_index?:number):Datex.Record<Datex.Type>{
-    let record = new Datex.Record();
+function getMethodParams(target:Function, method_name:string, meta_param_index?:number):Datex.Tuple{
+    let tuple = new Datex.Tuple();
     let method_params:any[] = Reflect.getMetadata && Reflect.getMetadata("design:paramtypes", target, method_name);
 
     // get parmeters names from function body string
@@ -805,11 +805,11 @@ function getMethodParams(target:Function, method_name:string, meta_param_index?:
         let i = 0;
         for (let param of method_params) {
             if (meta_param_index != null && meta_param_index == i) {i++; continue} // skip meta param index
-            record[names[i++]] = Datex.Type.getClassDatexType(param);
+            tuple.set(names[i++], Datex.Type.getClassDatexType(param));
         }
     }
 
-    return record;
+    return tuple;
 }
 function getMetaParamIndex(target:Function, method_name:string):number {
     return target[METADATA]?.[Decorators.META_INDEX]?.public?.[method_name] ??
@@ -878,7 +878,7 @@ export function proxyClass<T extends { new(...args: any[]): any;}>(original_clas
             // cast from type
             if (new_class == newTarget) {
                 // cast and immediately create pointer if auto_sync
-                return type.cast(new Datex.Tuple(...args), undefined, undefined, auto_sync);
+                return type.cast(new Datex.Tuple(args), undefined, undefined, auto_sync);
             }
             // just return new instance
             else return Reflect.construct(target, args, newTarget);

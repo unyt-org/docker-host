@@ -13,17 +13,20 @@ import Logger  from "./logger.js";
 let logger = new Logger("datex compiler");
 
 import {Datex, ReadableStream, arrayBufferToBase64, DatexRuntimePerformance} from "./datex_runtime.js";
+import { DatexCompilerV2 } from "./datex_compiler_v2.js";
 
 export enum BinaryCode {
 
-    /*
-        SHORTCUT CODES for datex std
-    */
 
-    // primitive / fundamental types
-
+    // flow instructions 0x00 - 0x0f
     END                 = 0x00,
-    
+    CLOSE_AND_STORE     = 0x01, // ;
+    SUBSCOPE_START      = 0x02, // (
+    SUBSCOPE_END        = 0x03, // )
+    CACHE_POINT         = 0x04, // cache dxb from this point on
+    CACHE_RESET         = 0x05, // reset dxb scope cache
+
+    // primitive / fundamental types 0x10 - 0x2f
     STD_TYPE_STRING     = 0x10,
     STD_TYPE_INT        = 0x11,
     STD_TYPE_FLOAT      = 0x12,
@@ -40,119 +43,148 @@ export enum BinaryCode {
     STD_TYPE_SET        = 0x1c,
     STD_TYPE_MAP        = 0x1d,
     STD_TYPE_TUPLE      = 0x1e,
-    STD_TYPE_RECORD     = 0x1f,
 
-    STD_TYPE_FUNCTION   = 0x20,
-    STD_TYPE_STREAM     = 0x21,
-    STD_TYPE_ANY        = 0x22,
-    STD_TYPE_ASSERTION  = 0x23,
-    STD_TYPE_TASK       = 0x24,
-    STD_TYPE_ITERATOR   = 0x25,
+    STD_TYPE_FUNCTION   = 0x1f,
+    STD_TYPE_STREAM     = 0x20,
+    STD_TYPE_ANY        = 0x21,
+    STD_TYPE_ASSERTION  = 0x22,
+    STD_TYPE_TASK       = 0x23,
+    STD_TYPE_ITERATOR   = 0x24,
 
-    // internal variables and other shorthands
+
+    // internal variables and other shorthands 0x30 - 0x4f
     VAR_RESULT          = 0x30,
     SET_VAR_RESULT      = 0x31,
-    VAR_RESULT_ACTION   = 0x32,
+    SET_VAR_RESULT_REFERENCE = 
+                          0x32,
+    VAR_RESULT_ACTION   = 0x33,
 
-    VAR_SUB_RESULT          = 0x33,
-    SET_VAR_SUB_RESULT      = 0x34,
-    VAR_SUB_RESULT_ACTION   = 0x35,
+    VAR_SUB_RESULT      = 0x34,
+    SET_VAR_SUB_RESULT  = 0x35,
+    SET_VAR_SUB_RESULT_REFERENCE = 
+                          0x36,
+    VAR_SUB_RESULT_ACTION = 
+                          0x37,
 
-    VAR_ROOT            = 0x36,
-    SET_VAR_ROOT        = 0x37,
-    VAR_ROOT_ACTION     = 0x38,
+    VAR_ROOT            = 0x38,
+    SET_VAR_ROOT        = 0x39,
+    SET_VAR_ROOT_REFERENCE = 
+                          0x3a,
+    VAR_ROOT_ACTION     = 0x3b,
 
-    VAR_ORIGIN          = 0x39,
-    SET_VAR_ORIGIN      = 0x3a,
-    VAR_ORIGIN_ACTION   = 0x3b,
+    VAR_ORIGIN          = 0x3c,
+    SET_VAR_ORIGIN      = 0x3d,
+    SET_VAR_ORIGIN_REFERENCE = 
+                          0x3e,
+    VAR_ORIGIN_ACTION   = 0x3f,
 
-    VAR_SENDER          = 0x3c,
-    VAR_CURRENT         = 0x3d,
-    VAR_ENCRYPTED       = 0x3e,
-    VAR_SIGNED          = 0x3f,
-
-    VAR_TIMESTAMP       = 0x40,
-    VAR_META            = 0x41,
-    VAR_STATIC          = 0x42,
-    VAR_THIS            = 0x43,
-    VAR_IT              = 0x47,
-    SET_VAR_IT          = 0x48,
-    VAR_IT_ACTION       = 0x49,
-    VAR_ITER            = 0x4a,
-    SET_VAR_ITER        = 0x4b,
-    VAR_ITER_ACTION     = 0x4c,
-
+    VAR_IT              = 0x40,
+    SET_VAR_IT          = 0x41,
+    SET_VAR_IT_REFERENCE= 0x42,
+    VAR_IT_ACTION       = 0x43,
+    
     VAR_REMOTE          = 0x44,
-    SET_VAR_REMOTE      = 0x45,
-    VAR_REMOTE_ACTION   = 0x46,
+
+    VAR_REMOTE_ACTION   = 0x45,
+    VAR_SENDER          = 0x46,
+    VAR_CURRENT         = 0x47,
+    VAR_ENCRYPTED       = 0x48,
+    VAR_SIGNED          = 0x49,
+    VAR_TIMESTAMP       = 0x4a,
+    VAR_META            = 0x4b,
+    VAR_STATIC          = 0x4c,
+    VAR_THIS            = 0x4d,
 
 
-    CACHE_POINT         = 0x50, // cache dxb from this point on
-    CACHE_RESET         = 0x51, // reset dxb scope cache
+    // runtime commands 0x50 - 0x7f
 
-    URL                 = 0x52, //file://... , https://...
+    RETURN              = 0x50, // return
+    TEMPLATE            = 0x51, // template
+    EXTENDS             = 0x52, // extends
+    IMPLEMENTS          = 0x53, // implements
+    MATCHES             = 0x54, // matches
+    DEBUG               = 0x55, // debug
+    JMP                 = 0x56, // jmp labelname
+    JTR                 = 0x57, // jtr labelname
+    JFA                 = 0x58, // jfa labelname (TODO replace with 0xa)
+    COUNT               = 0x59, // count x
+    ABOUT               = 0x5a, // about x
+    DELETE_POINTER      = 0x5b, // delete $aa
+    SUBSCRIBE           = 0x5c, // subscribe $aa
+    UNSUBSCRIBE         = 0x5d, // unsubscribe $aa
+    VALUE               = 0x5e, // value $aa
+    ORIGIN              = 0x5f, // origin $aa
+    SUBSCRIBERS         = 0x60, // subscribers $aa
+    PLAIN_SCOPE         = 0x61, // scope xy;
+    TRANSFORM           = 0x62, // transform x <Int>
+    OBSERVE             = 0x63, // observe x ()=>()
+    DO                  = 0x64, // do xy;
+    AWAIT               = 0x65, // await xy;
+    HOLD                = 0x66, // hold xy;
+    FUNCTION            = 0x67, // function ()
+    ASSERT              = 0x68, // assert
+    ITERATOR            = 0x69, // iterator x;
+    ITERATION           = 0x6a, // iteration ()
+    FREEZE              = 0x6b, // freeze
+    SEAL                = 0x6c, // seal
+    HAS                 = 0x6d, // x has y
+    KEYS                = 0x6e, // keys x
+    GET_TYPE            = 0x6f, // type $aa
+    REQUEST             = 0x70, // request file://..., request @user::34
+    RANGE               = 0x71, // ..
 
-    REQUEST             = 0x58, // resolve "file://...", resolve @user
+    // comparators 0x80 - 0x8f
+    EQUAL_VALUE         = 0x80, // ==
+    NOT_EQUAL_VALUE     = 0x81, // ~=
+    EQUAL               = 0x82, // ===
+    NOT_EQUAL           = 0x83, // ~==
+    GREATER             = 0x84, // >
+    LESS                = 0x85, // <
+    GREATER_EQUAL       = 0x86, // >=
+    LESS_EQUAL          = 0x87, // <=
 
-    /*
-        OTHER BINARY CODES
-    */
+    // logical + algebraic operators 0x90  - 0x9f
+    AND                 = 0x90,  // &
+    OR                  = 0x91,  // |
+    ADD                 = 0x92,  // +
+    SUBTRACT            = 0x93,  // -
+    MULTIPLY            = 0x94,  // *
+    DIVIDE              = 0x95,  // /
+    NOT                 = 0x96,  // ~
 
-    TEMPLATE            = 0x53, // template
-    EXTENDS             = 0x54, // extends
-    IMPLEMENTS          = 0x55, // implements
-    MATCHES             = 0x56, // matches
-    DEBUG               = 0x57, // debug
+    // pointers & variables 0xa0 - 0xbf
 
+    VAR                 = 0xa0, // x, _eeffaa
+    SET_VAR             = 0xa1, // x = ..., _aaee = ...
+    SET_VAR_REFERENCE   = 0xa2, // x $= ..., _aaee = ...
+    VAR_ACTION          = 0xa3, // x += ...
 
-    CLOSE_AND_STORE     = 0xa0, // ;
-    SUBSCOPE_START      = 0xa1, // (
-    SUBSCOPE_END        = 0xa2, // )
-    RETURN              = 0xa4, // return
-    JMP                 = 0xa5, // jmp labelname
-    JTR                 = 0xa6, // jtr labelname
-    JFA                 = 0x66, // jfa labelname (TODO replace with 0xa)
-    EQUAL_VALUE         = 0xa7, // ==
-    NOT_EQUAL_VALUE     = 0xa8, // ~=
-    EQUAL               = 0xa3, // ===
-    NOT_EQUAL           = 0xdf, // ~==
-    GREATER             = 0xa9, // >
-    LESS                = 0xaa, // <
-    GREATER_EQUAL       = 0xab, // >=
-    LESS_EQUAL          = 0xac, // <=
-    COUNT               = 0xad, // count x
-    ABOUT               = 0xae, // about x
-    WILDCARD            = 0xaf, // *
+    INTERNAL_VAR        = 0xa4, // #xyz
+    SET_INTERNAL_VAR    = 0xa5, // #aa = ...
+    SET_INTERNAL_VAR_REFERENCE =   
+                          0xa6, // #aa $= ...
+    INTERNAL_VAR_ACTION = 0xa7, // #x += ...
 
+    LABEL               = 0xa8, // $x
+    SET_LABEL           = 0xa9, // $x = ...,
+    INIT_LABEL          = 0xaa, // $x := ...
+    LABEL_ACTION        = 0xab, // $x += ...
 
-    VAR                 = 0xb0, // x, _eeffaa
-    SET_VAR             = 0xb1, // x = ..., _aaee = ...
-    VAR_ACTION          = 0xb2, // x ?= ...
+    POINTER             = 0xac, // $x
+    SET_POINTER         = 0xad, // $aa = ...
+    INIT_POINTER        = 0xae, // $aa := ...
+    POINTER_ACTION      = 0xaf, // $aa += ...
+    CREATE_POINTER      = 0xb0, // $$ ()
 
-    INTERNAL_VAR        = 0xb3, // __xyz
-    SET_INTERNAL_VAR    = 0xb4, // __aa = ...
-    INTERNAL_VAR_ACTION = 0xb5, // __x ?= ...
+    CHILD_GET           = 0xb1,  // .y
+    CHILD_SET           = 0xb2,  // .y = a
+    CHILD_SET_REFERENCE = 0xb3,  // .y $= a
+    CHILD_ACTION        = 0xb4,  // .y += a, ...
+    CHILD_GET_REF       = 0xb5,  // ->y
 
-    POINTER             = 0xb6, // $x
-    SET_POINTER         = 0xb7, // $aa = ...
-    POINTER_ACTION      = 0xb8, // $aa ?= ...
+    WILDCARD            = 0xb6, // *
 
-    CREATE_POINTER      = 0xb9, // $$ ()
-    DELETE_POINTER      = 0xba, // delete $aa
-    SUBSCRIBE           = 0xbb, // subscribe $aa
-    UNSUBSCRIBE         = 0xbc, // unsubscribe $aa
-    VALUE               = 0xbd, // value $aa
-    ORIGIN              = 0xbe, // origin $aa
-    SUBSCRIBERS         = 0xbf, // subscribers $aa
-    TRANSFORM           = 0x67, // transform x <Int>
-    OBSERVE             = 0x68, // observe x ()=>()
-    DO                  = 0x69, // do xy;
-    AWAIT               = 0x70, // await xy;
-    HOLD                = 0x71, // hold xy;
-    FUNCTION            = 0x72, // function ()
-    ASSERT              = 0x59, // assert
-    ITERATOR            = 0x5a, // iterator x;
-    ITERATION           = 0x5b, // iteration ()
+    // values 0xc0 - 0xdf
 
     STRING              = 0xc0,
     INT_8               = 0xc1, // byte
@@ -170,28 +202,25 @@ export enum BinaryCode {
     FLOAT_AS_INT        = 0xcd,
     SHORT_STRING        = 0xce, // string with max. 255 characters
 
-    PERSON_ALIAS        = 0xd0,
-    PERSON_ALIAS_WILDCARD = 0xd1,
-    INSTITUTION_ALIAS   = 0xd2,
-    INSTITUTION_ALIAS_WILDCARD = 0xd3,
-    BOT                 = 0xd4,
-    BOT_WILDCARD        = 0xd5,
+    PERSON_ALIAS        = 0xcf,
+    PERSON_ALIAS_WILDCARD = 
+                          0xd0,
+    INSTITUTION_ALIAS   = 0xd1,
+    INSTITUTION_ALIAS_WILDCARD = 
+                          0xd2,
+    BOT                 = 0xd3,
+    BOT_WILDCARD        = 0xd4,
 
-    // todo rearrange (move to pointers / variables)
-    LABEL               = 0xda, // #x
-    SET_LABEL           = 0xdb, // #x = ...,
-    LABEL_ACTION        = 0xdc, // #x ?= ...
-   
-    ENDPOINT            = 0xd6,
-    ENDPOINT_WILDCARD   = 0xd7,
-    FILTER              = 0xde,
+    ENDPOINT            = 0xd5,
+    ENDPOINT_WILDCARD   = 0xd6,
+    FILTER              = 0xd7,
 
-    SYNC                = 0xd8,
-    STOP_SYNC           = 0xd9,
-    FREEZE              = 0x60, // freeze
-    SEAL                = 0x61, // seal
-    HAS                 = 0x62, // x has y
-    KEYS                = 0x63, // keys x
+    URL                 = 0xd8, //file://... , https://...
+
+    TYPE                = 0xd9, // <type>
+    EXTENDED_TYPE       = 0xda, // <type/xy()>
+
+    // arrays, objects and tuples 0xe0 - 0xef
 
     ARRAY_START         = 0xe0,  // array / or array
     ARRAY_END           = 0xe1,
@@ -199,36 +228,27 @@ export enum BinaryCode {
     OBJECT_END          = 0xe3,
     TUPLE_START         = 0xe4,  // (a,b,c)
     TUPLE_END           = 0xe5,
-    RECORD_START        = 0xe6,  // (a:a,b:b)
-    RECORD_END          = 0xe7,  
-    ELEMENT_WITH_KEY    = 0xe8,  // for object elements
-    KEY_PERMISSION      = 0xf7,  // for object elements with permission prefix
-    ELEMENT             = 0xe9,  // for array elements
-    AND                 = 0xea,  // &
-    OR                  = 0xeb,  // |
-    NOT                 = 0xec,  // ~
-    STREAM              = 0xed,  // << stream
-    STOP_STREAM         = 0xdd,  // </ stream
+    ELEMENT_WITH_KEY    = 0xe6,  // for object elements
+    ELEMENT_WITH_INT_KEY= 0xe7,  // for array elements
+    ELEMENT_WITH_DYNAMIC_KEY = 
+                          0xe8,  // for object elements with dynamic key
+    KEY_PERMISSION      = 0xe9,  // for object elements with permission prefix
+    ELEMENT             = 0xea,  // for array elements
 
-    CHILD_GET           = 0xf0,  // .y
-    CHILD_GET_REF       = 0xef,  // ->y
+    // special instructions 0xf0 - 0xff
 
-    CHILD_SET           = 0xf1,  // .y = a
-    CHILD_ACTION        = 0xf2,  // .y += a, ...
+    SYNC                = 0xf0, // <==
+    STOP_SYNC           = 0xf1, // </=
 
-    THROW_ERROR         = 0xf4,  // !
-    GET_TYPE            = 0xf5, // type $aa
+    STREAM              = 0xf2,  // << stream
+    STOP_STREAM         = 0xf3,  // </ stream
+
+    EXTEND              = 0xf4, // ...
+
+    THROW_ERROR         = 0xf5,  // !
 
     REMOTE              = 0xf6, // ::
 
-    ADD                 = 0xf8, // +
-    SUBTRACT            = 0xfa, // -
-    MULTIPLY            = 0xfb, // *
-    DIVIDE              = 0xfc, // /
-    RANGE               = 0xfd, // ..
-    EXTEND              = 0xfe, // ...
-    TYPE                = 0xff, // <type>
-    EXTENDED_TYPE       = 0xee, // <type/xy()>
 }
 
 
@@ -237,16 +257,17 @@ export enum BinaryCode {
 enum ACTION_TYPE {
     GET,
     SET,
+    SET_REFERENCE_OR_INIT, // $= for variables // := for pointers
     OTHER
 }
 
 
 export const Regex = {
     CLOSE_AND_STORE: /^(;\s*)+/, // one or multiple ;
-    VARIABLE: /^(\\)?()([A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*)(\s*[+-/*$&|]?=(?![=>/]))?/, // var_xxx or _ffefe
-    INTERNAL_VAR: /^()(#)([A-Za-z0-9À-ž_]+)(\s*[+-/*$&|]?=(?![=>/]))?/, //  __internal_var
+    VARIABLE: /^(\\)?()([A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*)(\s*[:+-/*&|$]?=(?![=>/]))?/, // var_xxx or _ffefe
+    INTERNAL_VAR: /^()(#)([A-Za-z0-9À-ž_]+)(\s*[:+-/*&|$]?=(?![=>/]))?/, //  __internal_var
 
-    LABELED_POINTER: /^(\\)?(\$)([A-Za-z0-9À-ž_]{1,25})(\s*[+-/*$&|]?=(?![=>/]))?/, // #label
+    LABELED_POINTER: /^(\\)?(\$)([A-Za-z0-9À-ž_]{1,25})(\s*[:+-/*&|]?=(?![=>/]))?/, // #label
 
     HEX_VARIABLE: /^[A-Fa-f0-9_]*$/, // variable with hexadecimal name
 
@@ -260,6 +281,8 @@ export const Regex = {
     SUBSCOPE_START: /^\(/,
     SUBSCOPE_END: /^\)/,
 
+    DYNAMIC_KEY_END: /^\) *:/,
+
     SYNC: /^\<\=\=/,
     STOP_SYNC: /^\<\/\=/,
 
@@ -269,7 +292,7 @@ export const Regex = {
     DIVIDE: /^\//,
 
     ASSIGN_SET: /^\=/,
-    ASSIGN_POINTER_VALUE: /^\$\=/,
+    ASSIGN_REFERENCE: /^\$\=/,
     ASSIGN_ADD: /^\+\=/,
     ASSIGN_MUTIPLY: /^\*\=/,
     ASSIGN_DIVIDE: /^\/\=/,
@@ -328,7 +351,7 @@ export const Regex = {
 
     _ANY_FILTER_TARGET: /^\@\+?[A-Za-z0-9À-ž-_]{1,32}(\:[A-Za-z0-9À-ž-_]{1,32})*(\/(\*|[A-Za-z0-9À-ž-_]{1,8}))?|\@\@[A-Fa-f0-9_-]{2,53}(\/(\*|[A-Za-z0-9À-ž-_]{1,8}))?$/,
 
-    KEY: /^[A-Za-z0-9À-ž_]+?\s*:(?!:)/,
+    KEY: /^[A-Za-z0-9À-ž_-]+?\s*:(?!:)/,
     
     PROPERTY: /^[A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*/,
 
@@ -370,6 +393,7 @@ export const Regex = {
     MATCHES: /^matches\b/,
     DEBUG: /^debug\b/,
 
+    SCOPE: /^scope\b\s*(\()?/,
     OBSERVE: /^observe\b/,
     TRANSFORM: /^transform\b\s*(\()?/,
     HOLD: /^hold\b\s*(\()?/,
@@ -411,7 +435,7 @@ export const Regex = {
     
     STRING_PROPERTY: /^\s*([A-Za-z_][A-Za-z0-9À-ž_]*)/,
 
-    POINTER: /^\$((?:[A-Fa-f0-9]{2}|[xX]([A-Fa-f0-9])){1,26})(\s*[+-/*$&|]?=(?![=>/]))?/,
+    POINTER: /^\$((?:[A-Fa-f0-9]{2}|[xX][A-Fa-f0-9]){1,26})(\s*[:+-/*&|]?=(?![=>/]))?/,
     CREATE_POINTER: /^\$\$/,
 
     STREAM: /^\<\</,
@@ -445,13 +469,13 @@ export enum DatexProtocolDataType {
     LOCAL_REQ   = 4, // default datex request, but don't want a response (use for <Function> code blocks, ....)
 
 
-    HELLO       = 6, // info message that endpoint is online
+    HELLO       = 5, // info message that endpoint is online
 }
 
 globalThis.DatexProtocolDataType = DatexProtocolDataType;
 
 export const DatexProtocolDataTypesMap = [
-    "REQUEST", "RESPONSE", "DATA", "BC_TRNSCT", "LOCAL_REQ", "-", "HELLO"
+    "REQUEST", "RESPONSE", "DATA", "BC_TRNSCT", "LOCAL_REQ", "HELLO"
 ]
 
 
@@ -577,6 +601,8 @@ export type compiler_options = {
     collapse_pointers?: boolean // collapse all pointers to their actual values
     collapse_first_inserted?: boolean // collapse outer pointer to actual value
     no_create_pointers?: boolean // don't add $$ to clone pointers (useful for value comparison)
+
+    __v2?: boolean
 }
 
 const utf8_decoder = new TextDecoder();
@@ -1313,6 +1339,9 @@ export class DatexCompiler {
                 assign_string = assign_string.replace(/ /g, '');
 
                 if (assign_string == "=") action_type = ACTION_TYPE.SET;
+                else if (assign_string == "$=") action_type = ACTION_TYPE.SET_REFERENCE_OR_INIT; // only for variables
+                else if (assign_string == ":=") action_type = ACTION_TYPE.SET_REFERENCE_OR_INIT;  // only for pointers/labels
+                
                 else if (assign_string == "+=") {
                     action_type = ACTION_TYPE.OTHER;
                     action_specifier = BinaryCode.ADD
@@ -1337,10 +1366,7 @@ export class DatexCompiler {
                     action_type = ACTION_TYPE.OTHER;
                     action_specifier = BinaryCode.OR
                 }
-                else if (assign_string == "$=") {
-                    action_type = ACTION_TYPE.OTHER;
-                    action_specifier = BinaryCode.CREATE_POINTER
-                }
+
             }
 
             return [action_type, action_specifier]
@@ -1750,16 +1776,29 @@ export class DatexCompiler {
         // },
 
 
-        addKey: (k:string, SCOPE:compiler_scope) => {
+        addKey: (k:string|number|bigint, SCOPE:compiler_scope) => {
             
-            let key_bin = DatexCompiler.utf8_encoder.encode(k);  // convert key to binary
-            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+key_bin.byteLength+1, SCOPE);
+            // string key
+            if (typeof k == "string") {
+                let key_bin = DatexCompiler.utf8_encoder.encode(k);  // convert key to binary
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+key_bin.byteLength+1, SCOPE);
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_KEY
+                SCOPE.uint8[SCOPE.b_index++] = key_bin.byteLength;  // write key length to buffer
+                SCOPE.uint8.set(key_bin, SCOPE.b_index);   // write key to buffer
+                SCOPE.b_index+=key_bin.byteLength;
+            }
+            // int key
+            else {
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+Uint32Array.BYTES_PER_ELEMENT+1, SCOPE);
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_INT_KEY
+                SCOPE.data_view.setUint32(SCOPE.b_index, Number(k))
+                SCOPE.b_index+=Uint32Array.BYTES_PER_ELEMENT;
+            }
 
-            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_KEY;
-            SCOPE.uint8[SCOPE.b_index++] = key_bin.byteLength;  // write key length to buffer
-            SCOPE.uint8.set(key_bin, SCOPE.b_index);   // write key to buffer
-            SCOPE.b_index+=key_bin.byteLength;
         },
+
+
+
         addNull: (SCOPE:compiler_scope) => {
             
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
@@ -1864,17 +1903,8 @@ export class DatexCompiler {
             else if (el instanceof Datex.Addresses.IdEndpoint) DatexCompiler.builder.addIdEndpointByIdAndChannel(el.binary, el.subspaces, el.instance, el.appspace, SCOPE);
         },
 
-        addTypeByNamespaceAndNameWithParams: async (SCOPE:compiler_scope, namespace:string, name:string, variation?:string, parameters?:Datex.Tuple) => {
-            DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, namespace, name, variation, !!parameters);
-       
-            // insert parameters directly
-            if (parameters instanceof Datex.Tuple) {
-                DatexCompiler.builder.addArray(parameters, SCOPE);
-            }
-            else if (parameters) throw new Datex.CompilerError("Invalid type parameters");
-        },
 
-        addTypeByNamespaceAndName: (SCOPE:compiler_scope, namespace:string, name:string, variation?:string, parameters = false) => {
+        addTypeByNamespaceAndName: (SCOPE:compiler_scope, namespace:string, name:string, variation?:string, parameters?:any[]|true) => {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
 
             DatexCompiler.builder.valueIndex(SCOPE);
@@ -1918,7 +1948,7 @@ export class DatexCompiler {
 
             if (is_extended_type) {
                 SCOPE.uint8[SCOPE.b_index++] = variation_bin ? variation_bin.byteLength : 0;
-                SCOPE.uint8[SCOPE.b_index++] = parameters?1:0;
+                SCOPE.uint8[SCOPE.b_index++] = parameters ? 1 : 0;
             }
 
             SCOPE.uint8.set(ns_bin, SCOPE.b_index);  // write type namespace to buffer
@@ -1928,6 +1958,10 @@ export class DatexCompiler {
             if (variation) {
                 SCOPE.uint8.set(variation_bin, SCOPE.b_index);  // write type variation to buffer
                 SCOPE.b_index+=variation_bin.byteLength;
+            }
+            // insert parameters directly
+            if (parameters instanceof Array) {
+                DatexCompiler.builder.addTuple(new Datex.Tuple(parameters), SCOPE);
             }
         },
 
@@ -1965,7 +1999,7 @@ export class DatexCompiler {
             else DatexCompiler.builder.addPointerByID (SCOPE, p.id_buffer, action_type, action_specifier)
         },
 
-        // add <Array> or <Tuple>
+        // add <Array>
         addArray: (a:Array<any>, SCOPE:compiler_scope, is_root=true, parents:Set<any>=new Set(), unassigned_children:[number, any, number][]=[], start_index:[number]=[0]) => {
     
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
@@ -2002,32 +2036,60 @@ export class DatexCompiler {
             if (is_root && unassigned_children.length) DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index)
         },
 
-        // add object or record
+        // add tuple
+        addTuple: (o:Datex.Tuple, SCOPE:compiler_scope, is_root=true, parents:Set<any>=new Set(), unassigned_children:[number, any, number][]=[], start_index:[number]=[0]) => {
+
+            let entries = o.entries();
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.TUPLE_START;
+
+            let parent_var:number;
+        
+
+            for (let [key,val] of o.entries()) {
+
+                if (o[Datex.INHERITED_PROPERTIES]?.has(key)) continue; // ignore inherited properties
+
+                // is recursive value?
+                if (SCOPE.inserted_values.has(val) && parents.has(val)) {
+                    // make sure variable for parent exists
+                    parent_var = parent_var ?? DatexCompiler.builder.createInternalVariableAtIndex(start_index, SCOPE, o)
+                    // get variable for the already-existing value
+                    let value_index = SCOPE.inserted_values.get(val);
+                    let existing_val_var = val == o ? parent_var : DatexCompiler.builder.createInternalVariableAtIndex(value_index, SCOPE, val)
+                    unassigned_children.push([parent_var, key, existing_val_var])
+                }
+                else {
+                    // non-key property (number index)
+                    if (typeof key == "number" || typeof key == "bigint") SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT; 
+                    // key property
+                    else DatexCompiler.builder.addKey(key, SCOPE);
+                    DatexCompiler.builder.insert(val, SCOPE, false, new Set(parents), unassigned_children); // shallow clone parents set
+                }
+               
+            }
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.TUPLE_END;
+
+            if (is_root && unassigned_children.length) DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index)
+        },
+
+        // add object or tuple
         addObject: (o:Object, SCOPE:compiler_scope, is_root=true, parents:Set<any>=new Set(), unassigned_children:[number, any, number][]=[], start_index:[number]=[0]) => {
 
             let entries = Object.entries(o);
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
-            SCOPE.uint8[SCOPE.b_index++] = o instanceof Datex.Record ? BinaryCode.RECORD_START : BinaryCode.OBJECT_START;
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.OBJECT_START;
 
             let parent_var:number;
-
-            let ext_props:Set<string>;
-            // TODO handle correctly when extending frozen object
-            // first add extended objects if extended object
-            if (o[Datex.EXTENDED_OBJECTS]) {
-                if (o[Datex.INHERITED_PROPERTIES]) ext_props = o[Datex.INHERITED_PROPERTIES];
-                for (let ext of o[Datex.EXTENDED_OBJECTS]||[]){
-                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
-                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;
-                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.EXTEND;
-                    DatexCompiler.builder.insert(ext, SCOPE, false, new Set(parents), unassigned_children); // shallow clone parents set
-                }
-            }
         
+
             for (let i = 0; i<entries.length; i++) {
                 let [key,val] = entries[i];
-                if (ext_props?.has(key)) continue; // ignore inherited properties
+
+                if (o[Datex.INHERITED_PROPERTIES]?.has(key)) continue; // ignore inherited properties
 
                 // is recursive value?
                 if (SCOPE.inserted_values.has(val) && parents.has(val)) {
@@ -2045,7 +2107,7 @@ export class DatexCompiler {
                
             }
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
-            SCOPE.uint8[SCOPE.b_index++] = o instanceof Datex.Record ? BinaryCode.RECORD_END : BinaryCode.OBJECT_END;
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.OBJECT_END;
 
             if (is_root && unassigned_children.length) DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index)
         },
@@ -2089,12 +2151,12 @@ export class DatexCompiler {
             if (SCOPE.inner_scope.parent_type==undefined || SCOPE.inner_scope.parent_type == BinaryCode.SUBSCOPE_START) {
                 // last ( bracket can be replaced with record bracket (if no commands before)
                 if (SCOPE.inner_scope.parent_type == BinaryCode.SUBSCOPE_START && !SCOPE.inner_scope.has_ce) {
-                    DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START)
+                    DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.TUPLE_START)
                 }
                 // create new subscope
                 else {
-                    DatexCompiler.builder.enter_subscope(SCOPE, BinaryCode.RECORD_START);
-                    SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
+                    DatexCompiler.builder.enter_subscope(SCOPE, BinaryCode.TUPLE_START);
+                    SCOPE.inner_scope.auto_close_scope = BinaryCode.TUPLE_END;
                 }
             }
         },
@@ -2150,7 +2212,6 @@ export class DatexCompiler {
 
             // override subscope with tuple/record end bracket
             if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START && type == BinaryCode.SUBSCOPE_END) type = BinaryCode.TUPLE_END;
-            if (SCOPE.inner_scope.parent_type == BinaryCode.RECORD_START && type == BinaryCode.SUBSCOPE_END) type = BinaryCode.RECORD_END;
 
             if (SCOPE.inner_scope.parent_type == BinaryCode.OBJECT_START && type != BinaryCode.OBJECT_END) throw new Datex.SyntaxError("Missing closing object bracket");
             if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START && type != BinaryCode.ARRAY_END)  throw new Datex.SyntaxError("Missing closing array bracket");
@@ -2256,7 +2317,7 @@ export class DatexCompiler {
             let original_value = value;
 
             // exception for functions: convert to Datex.Function & create Pointer reference
-            if (value instanceof Function && !(value instanceof Datex.Function)) value = Datex.Pointer.proxifyValue(new Datex.Function(value, null, SCOPE.options.to));
+            if (value instanceof Function && !(value instanceof Datex.Function)) value = Datex.Pointer.proxifyValue(new Datex.Function(null, value));
 
             // is not a Datex.Error -> convert to Datex.Error
             if (value instanceof Error && !(value instanceof Datex.Error)) {
@@ -2268,7 +2329,7 @@ export class DatexCompiler {
                 [type, value] = value.getSerialized();
 
                 // add type if exists and !pointer
-                if (type?.is_complex && type != Datex.Type.std.Function) DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, type.namespace, type.name, type.variation, type.parameters);
+                if (type?.is_complex && type != Datex.Type.std.Scope) DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, type.namespace, type.name, type.variation, type.parameters);
             }
 
             // normal value (pointer or value)
@@ -2295,8 +2356,8 @@ export class DatexCompiler {
                     if (!type) throw new Datex.ValueError("Cannot get type for value " + value)
 
                     // convert to <type> + serialized object ;
-                    if (type?.is_complex && type != Datex.Type.std.Function) {
-                        DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, type.namespace, type.name, type.variation, type.parameters);
+                    if (type?.is_complex && type != Datex.Type.std.Scope) {
+                        DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, type.namespace, type.name, type.variation, type.parameters);
                         value = DatexCompiler.builder.serializeValue(value, SCOPE);
                     }
                     else if (type?.serializable_not_complex) { // for UintArray Buffers
@@ -2310,16 +2371,16 @@ export class DatexCompiler {
             }
 
             // only fundamentals here:
-            if (value instanceof Datex.Unit)            return DatexCompiler.builder.addUnit(value, SCOPE); // UNIT
-            if (value===Datex.VOID)                     return DatexCompiler.builder.addVoid(SCOPE); // Datex.VOID
-            if (value===null)                           return DatexCompiler.builder.addNull(SCOPE); // NULL
-            if (typeof value == 'bigint')               return DatexCompiler.builder.addInt(value, SCOPE); // INT
-            if (typeof value == 'number')               return DatexCompiler.builder.addFloat(value, SCOPE); // FLOAT
-            if (typeof value == "string")               return DatexCompiler.builder.addString(value, SCOPE); // STRING
-            if (typeof value == "boolean")              return DatexCompiler.builder.addBoolean(value, SCOPE); // BOOLEAN
-            if (value instanceof URL)                   return DatexCompiler.builder.addUrl(value.href, SCOPE); // URL
+            if (value instanceof Datex.Unit)                 DatexCompiler.builder.addUnit(value, SCOPE); // UNIT
+            else if (value===Datex.VOID)                     DatexCompiler.builder.addVoid(SCOPE); // Datex.VOID
+            else if (value===null)                           DatexCompiler.builder.addNull(SCOPE); // NULL
+            else if (typeof value == 'bigint')               DatexCompiler.builder.addInt(value, SCOPE); // INT
+            else if (typeof value == 'number')               DatexCompiler.builder.addFloat(value, SCOPE); // FLOAT
+            else if (typeof value == "string")               DatexCompiler.builder.addString(value, SCOPE); // STRING
+            else if (typeof value == "boolean")              DatexCompiler.builder.addBoolean(value, SCOPE); // BOOLEAN
+            else if (value instanceof URL)                   DatexCompiler.builder.addUrl(value.href, SCOPE); // URL
 
-            if (value instanceof Datex.PointerProperty) {
+            else if (value instanceof Datex.PointerProperty) {
                 // $pointer
                 DatexCompiler.builder.addPointer(value.pointer, SCOPE);
                 // ->
@@ -2329,9 +2390,8 @@ export class DatexCompiler {
                 _SCOPE.uint8[_SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_GET_REF;
                 // key
                 DatexCompiler.builder.insert(value.key, _SCOPE);
-                return;
             }
-            if (value instanceof Datex.Pointer)      {
+            else if (value instanceof Datex.Pointer)      {
                 // pointer action follows (if not a path property)?
                 if (SCOPE.inner_scope.path_info_index == -1) {
                     let m:RegExpMatchArray;
@@ -2373,7 +2433,7 @@ export class DatexCompiler {
                         action_type = ACTION_TYPE.OTHER;
                         action_specifier = BinaryCode.OR;
                     }
-                    else if (m = SCOPE.datex?.match(Regex.ASSIGN_POINTER_VALUE)) {
+                    else if (m = SCOPE.datex?.match(Regex.ASSIGN_REFERENCE)) {
                         SCOPE.datex = SCOPE.datex.substring(m[0].length);
                         action_type = ACTION_TYPE.OTHER;
                         action_specifier = BinaryCode.CREATE_POINTER;
@@ -2382,65 +2442,73 @@ export class DatexCompiler {
                         // pointer get
                         if (SCOPE.options.inserted_ptrs) SCOPE.options.inserted_ptrs.add(value)
                     }
-                    return DatexCompiler.builder.addPointer(value, SCOPE, action_type, action_specifier); // POINTER (assignment)
+                    DatexCompiler.builder.addPointer(value, SCOPE, action_type, action_specifier); // POINTER (assignment)
                 }
                 else {
                     if (SCOPE.options.inserted_ptrs) SCOPE.options.inserted_ptrs.add(value)
-                    return DatexCompiler.builder.addPointer(value, SCOPE); // POINTER
+                    DatexCompiler.builder.addPointer(value, SCOPE); // POINTER
                 }
             }
-            if (value instanceof Datex.Addresses.WildcardTarget) return DatexCompiler.builder.addFilterTarget(value.target, SCOPE); // Filter Target: ORG, APP, LABEL, ALIAS
-            if (value instanceof Datex.Addresses.Endpoint) return DatexCompiler.builder.addFilterTarget(value, SCOPE); // Filter Target: ORG, APP, LABEL, ALIAS
-            if (value instanceof Datex.Addresses.Filter)       return DatexCompiler.builder.addFilter(value, SCOPE); // Complex Filter
-            if (value instanceof Datex.Type) {
-                DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, value.namespace, value.name, value.variation, value.parameters); // Datex.Type
-                if (value.parameters) DatexCompiler.builder.insert(value.parameters, SCOPE);
-                return;
+            else if (value instanceof Datex.Addresses.WildcardTarget)   DatexCompiler.builder.addFilterTarget(value.target, SCOPE); // Filter Target: ORG, APP, LABEL, ALIAS
+            else if (value instanceof Datex.Addresses.Endpoint)         DatexCompiler.builder.addFilterTarget(value, SCOPE); // Filter Target: ORG, APP, LABEL, ALIAS
+            else if (value instanceof Datex.Addresses.Filter)           DatexCompiler.builder.addFilter(value, SCOPE); // Complex Filter
+            else if (value instanceof Datex.Type) {
+                DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, value.namespace, value.name, value.variation, value.parameters); // Datex.Type
             }
-            if (value instanceof Uint8Array)        return DatexCompiler.builder.addBuffer(value, SCOPE); // Uint8Array
-            if (value instanceof ArrayBuffer)       return DatexCompiler.builder.addBuffer(new Uint8Array(value), SCOPE); // Buffer
-            if (value instanceof Datex.Function) { // Datex Function
+            else if (value instanceof Uint8Array)        DatexCompiler.builder.addBuffer(value, SCOPE); // Uint8Array
+            else if (value instanceof ArrayBuffer)       DatexCompiler.builder.addBuffer(new Uint8Array(value), SCOPE); // Buffer
+            else if (value instanceof Datex.Scope) { // Datex Scope
                 // insert scope block
-                DatexCompiler.builder.insert(value.params, SCOPE);
-                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
-                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.FUNCTION;
-                // internal scope variables
-                for (let variable of value.datex?.internal_vars??[]) {
-                    DatexCompiler.builder.insert(variable, SCOPE);
-                }
-                
-                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1+Uint32Array.BYTES_PER_ELEMENT+(value.datex?.compiled?.byteLength??0), SCOPE);
+              
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.PLAIN_SCOPE;         
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1+Uint32Array.BYTES_PER_ELEMENT+(value.compiled?.byteLength??0), SCOPE);
                 SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SCOPE_BLOCK;
-                SCOPE.data_view.setUint32(SCOPE.b_index, value.datex?.compiled?.byteLength??0, true);
+                SCOPE.data_view.setUint32(SCOPE.b_index, value.compiled?.byteLength??0, true);
                 SCOPE.b_index += Uint32Array.BYTES_PER_ELEMENT
-                if (value.datex?.compiled) {
-                    SCOPE.uint8.set(new Uint8Array(value.datex.compiled), SCOPE.b_index)
-                    SCOPE.b_index += value.datex.compiled.byteLength;
+                if (value.compiled) {
+                    SCOPE.uint8.set(new Uint8Array(value.compiled), SCOPE.b_index)
+                    SCOPE.b_index += value.compiled.byteLength;
                 }
-                return;
             }
 
             // complex objects (with recursion)
-            if (value instanceof Array) { 
+            else if (value instanceof Array) { 
                 // add current value to parents list
                 if (!parents) parents = new Set();
                 parents.add(original_value);
-                return DatexCompiler.builder.addArray(value, SCOPE, is_root, parents, unassigned_children, start_index);
+                DatexCompiler.builder.addArray(value, SCOPE, is_root, parents, unassigned_children, start_index);
             } 
-            if (typeof value == "object")  {
+            else if (value instanceof Datex.Tuple)  {
                 // add current value to parents list
                 if (!parents) parents = new Set();
                 parents.add(original_value);         
-                return DatexCompiler.builder.addObject(value, SCOPE, is_root, parents, unassigned_children, start_index);
+                DatexCompiler.builder.addTuple(value, SCOPE, is_root, parents, unassigned_children, start_index);
+            }
+            else if (typeof value == "object")  {
+                // add current value to parents list
+                if (!parents) parents = new Set();
+                parents.add(original_value);         
+                DatexCompiler.builder.addObject(value, SCOPE, is_root, parents, unassigned_children, start_index);
             }
 
             // convert symbols to Datex.VOID (not supported) TODO create pointers for symbols (custom class)?
-            if (typeof value == "symbol") {
-                return DatexCompiler.builder.addVoid(SCOPE); // Datex.VOID
+            else if (typeof value == "symbol") {
+                DatexCompiler.builder.addVoid(SCOPE); // Datex.VOID
             }
             else {
                 console.error("Unsupported native value", value);
                 throw new Datex.ValueError("Failed to compile an unsupported native type")
+            }
+
+            // add extended values
+            // TODO handle correctly when extending frozen object
+            // first add extended objects if extended object
+            if (value?.[Datex.EXTENDED_OBJECTS]) {
+                for (let ext of value[Datex.EXTENDED_OBJECTS]||[]){
+                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.AND;
+                    DatexCompiler.builder.insert(ext, SCOPE, is_root, parents, unassigned_children); // shallow clone parents set
+                }
             }
         }
 
@@ -2498,14 +2566,15 @@ export class DatexCompiler {
 
         // KEY  (check before variable and keywords!, only if not in :: filter)
         else if (m = SCOPE.datex.match(Regex.KEY)) {   
-            if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START) throw new Datex.SyntaxError("Invalid key in <Array>");
-            // convert tuple to record
-            if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START) DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START)
-            if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END) SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
+            //if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START) throw new Datex.SyntaxError("Invalid key in <Array>");
+            // // convert tuple to record
+            // if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START) DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START)
+            // if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END) SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
 
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
 
             let key = m[0].substring(0,m[0].length-1).trim(); // get key
+            let int_key = Number.isInteger(Number(key)) ? Number(key) : null;
 
             // check/add  permission prefix (@xy x: ...)
             const permission_prefix = DatexCompiler.builder.check_perm_prefix(SCOPE);
@@ -2514,7 +2583,7 @@ export class DatexCompiler {
             if (!permission_prefix && SCOPE.inner_scope.first_element_pos!=undefined) SCOPE.b_index = SCOPE.inner_scope.first_element_pos;
 
             DatexCompiler.builder.detect_record(SCOPE);
-            DatexCompiler.builder.addKey(key, SCOPE);
+            DatexCompiler.builder.addKey(int_key??key, SCOPE);
             isEffectiveValue = true;
         }
 
@@ -2858,7 +2927,7 @@ export class DatexCompiler {
         }
 
         // SPREAD (...) = <Tuple>/<Record>
-            else if (m = SCOPE.datex.match(Regex.SPREAD)) {
+        else if (m = SCOPE.datex.match(Regex.SPREAD)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index+1, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
@@ -3182,7 +3251,6 @@ export class DatexCompiler {
                 }
                 // create new subscope
                 else {
-                    console.log("comma",SCOPE.inner_scope.ce_index,SCOPE.inner_scope.first_value_index)
 
                     const index = Math.max(SCOPE.inner_scope.ce_index??0, SCOPE.inner_scope.first_value_index); // save index from current sub scope
                     if (index === -1) throw new Datex.SyntaxError("Invalid leading comma") // value must exist before
@@ -3319,9 +3387,9 @@ export class DatexCompiler {
             // is escaped key
             if (m[2]) {
                 if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START) throw new Datex.SyntaxError("Invalid key in <Array>");
-                // convert tuple to record
-                if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START) DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START)
-                if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END) SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
+                // // convert tuple to record
+                // if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START) DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START)
+                // if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END) SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
                 
                 // check/add  permission prefix (@xy x: ...)
                 const permission_prefix = DatexCompiler.builder.check_perm_prefix(SCOPE);
@@ -3336,7 +3404,21 @@ export class DatexCompiler {
             isEffectiveValue = true;
         }
 
+        // DYNAMIC_KEY_END
+        else if (m = SCOPE.datex.match(Regex.DYNAMIC_KEY_END)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            console.log('DYNAMIC_KEY_EMD')
 
+            // closing )
+            DatexCompiler.builder.exit_subscope(SCOPE);
+
+            // override current BinaryCode.ELEMENT
+            const current_b_index = SCOPE.b_index;
+            if (SCOPE.inner_scope.first_element_pos!=undefined) SCOPE.b_index = SCOPE.inner_scope.first_element_pos;
+            DatexCompiler.builder.detect_record(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_DYNAMIC_KEY;
+            SCOPE.b_index = current_b_index;
+        }
 
         // SUBSCOPE_END
         else if (m = SCOPE.datex.match(Regex.SUBSCOPE_END)) {
@@ -3501,6 +3583,12 @@ export class DatexCompiler {
             console.log("constructor", m[0]);
         }
 
+        // SCOPE (plain DATEX Scope)
+        else if (m = SCOPE.datex.match(Regex.SCOPE)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
+            await DatexCompiler.builder.addScopeBlock(BinaryCode.PLAIN_SCOPE, !!m[1], 0, SCOPE)  
+        }
+
         // OBSERVE value
         else if (m = SCOPE.datex.match(Regex.OBSERVE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
@@ -3592,9 +3680,7 @@ export class DatexCompiler {
                 else if (v_name == "sub_result") {base_type = BinaryCode.VAR_SUB_RESULT; v_name = undefined}
                 else if (v_name == "root") {base_type = BinaryCode.VAR_ROOT; v_name = undefined}
                 else if (v_name == "origin") {base_type = BinaryCode.VAR_ORIGIN; v_name = undefined}
-                else if (v_name == "remote") {base_type =  BinaryCode.VAR_REMOTE; v_name = undefined}
                 else if (v_name == "it") {base_type =  BinaryCode.VAR_IT; v_name = undefined}
-                else if (v_name == "iter") {base_type =  BinaryCode.VAR_ITER; v_name = undefined}
 
                 else if (v_name == "sender") {if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #sender"); base_type = BinaryCode.VAR_SENDER; v_name = undefined}
                 else if (v_name == "current") {if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #current"); base_type = BinaryCode.VAR_CURRENT; v_name = undefined}
@@ -3604,6 +3690,7 @@ export class DatexCompiler {
                 else if (v_name == "meta") {  if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #meta"); base_type =  BinaryCode.VAR_META; v_name = undefined}
                 else if (v_name == "static") {  if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #static"); base_type =  BinaryCode.VAR_STATIC; v_name = undefined}
                 else if (v_name == "this") {  if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #this"); base_type =  BinaryCode.VAR_THIS; v_name = undefined}
+                else if (v_name == "remote") {if (action_type != ACTION_TYPE.GET) throw new Datex.CompilerError("Invalid action on internal variable #remote"); base_type = BinaryCode.VAR_REMOTE; v_name = undefined}
             }
 
             // pre extract var if >=1, label if >= 2, or if scope_extract (\)
@@ -3728,15 +3815,12 @@ export class DatexCompiler {
             }
         }
 
-        // ASSIGN_POINTER_VALUE ($=)
-        else if (m = SCOPE.datex.match(Regex.ASSIGN_POINTER_VALUE)) {
+        // ASSIGN_REFERENCE ($=)
+        else if (m = SCOPE.datex.match(Regex.ASSIGN_REFERENCE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);  // pop datex
 
             if (SCOPE.inner_scope.path_info_index == -1) throw new Datex.CompilerError("Invalid assignment");
-            else {
-                SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
-                DatexCompiler.builder.insertByteAtIndex(BinaryCode.CREATE_POINTER, SCOPE.inner_scope.path_info_index+1, SCOPE); // add action specifier
-            }
+            else SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_SET_REFERENCE;
         }
 
 
@@ -3982,7 +4066,7 @@ export class DatexCompiler {
                         
                         // read stream and insert
                         let reader = SCOPE.streaming;
-                        let next:ReadableStreamDefaultReadResult<any>,
+                        let next:ReadableStreamReadResult<any>,
                             value: any;
                         while (true) {
                             next = await reader.read()
@@ -4025,7 +4109,7 @@ export class DatexCompiler {
                         // is another stream of blocks
                         else {
                             const reader = res.getReader();
-                            let next:ReadableStreamDefaultReadResult<ArrayBuffer>;
+                            let next:ReadableStreamReadResult<ArrayBuffer>;
                             while (true) {
                                 next = await reader.read()
                                 if (next.done) break;
@@ -4183,13 +4267,13 @@ export class DatexCompiler {
     }
 
     /** does not create a full DXB block, only a buffer containing a dxb encoded value */
-    static encodeValue(value:any, inserted_ptrs?:Set<Datex.Pointer>, add_command_end = true, deep_collapse = false, collapse_first_inserted = false, no_create_pointers = false):ArrayBuffer {
+    static encodeValue(value:any, inserted_ptrs?:Set<Datex.Pointer>, add_command_end = true, deep_clone = false, collapse_first_inserted = false, no_create_pointers = false):ArrayBuffer {
         // add_command_end -> end_of_scope -> add ; at the end
-        return this.compileValue(value, {inserted_ptrs, collapse_pointers:deep_collapse, collapse_first_inserted:collapse_first_inserted, no_create_pointers:no_create_pointers}, add_command_end)
+        return this.compileValue(value, {inserted_ptrs, collapse_pointers:deep_clone, collapse_first_inserted:collapse_first_inserted, no_create_pointers:no_create_pointers}, add_command_end)
     }
 
-    static encodeValueBase64(value:any, inserted_ptrs?:Set<Datex.Pointer>, add_command_end = true, deep_collapse = false, collapse_first_inserted = false, no_create_pointers = false):string {
-        return arrayBufferToBase64(this.encodeValue(value, inserted_ptrs, add_command_end, deep_collapse, collapse_first_inserted, no_create_pointers));
+    static encodeValueBase64(value:any, inserted_ptrs?:Set<Datex.Pointer>, add_command_end = true, deep_clone = false, collapse_first_inserted = false, no_create_pointers = false):string {
+        return arrayBufferToBase64(this.encodeValue(value, inserted_ptrs, add_command_end, deep_clone, collapse_first_inserted, no_create_pointers));
     }
 
     // creates a unique hash for a given value
@@ -4369,7 +4453,7 @@ export class DatexCompiler {
         SCOPE.uint8 = new Uint8Array(SCOPE.buffer);
         SCOPE.data_view = new DataView(SCOPE.buffer);
 
-        return DatexCompiler.compileLoop(SCOPE);
+        return SCOPE.options.__v2 ? DatexCompilerV2.compile(SCOPE.datex) : DatexCompiler.compileLoop(SCOPE);
     }
 
 

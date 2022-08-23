@@ -23,31 +23,35 @@ var ContainerStatus;
     ContainerStatus[ContainerStatus["RUNNING"] = 2] = "RUNNING";
     ContainerStatus[ContainerStatus["STOPPING"] = 3] = "STOPPING";
     ContainerStatus[ContainerStatus["FAILED"] = 4] = "FAILED";
+    ContainerStatus[ContainerStatus["INITIALIZING"] = 5] = "INITIALIZING";
 })(ContainerStatus || (ContainerStatus = {}));
 let Container = class Container {
     logger;
-    initialized = false;
+    #initialized = false;
     image;
+    container_name = "Container";
+    name = "Container";
     id = '0';
     owner;
-    status = 0;
-    get container_name() {
-        return `${this.image}-inst-${this.id}`;
+    status = ContainerStatus.INITIALIZING;
+    uniqueID() {
+        return 'xxxx-xxxx-xxxx-xxxx-xxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
     }
-    constructor(image, owner) { }
-    construct(image, owner) {
-        this.image = image;
+    constructor(owner) { }
+    construct(owner) {
         this.owner = owner;
+        this.container_name = this.uniqueID();
         this.logger = new Logger(this);
     }
     replicate() {
         this.logger = new Logger(this);
-        this.initialized = true;
+        this.#initialized = true;
         this.updateAfterReplicate();
     }
     async start() {
-        this.logger.info("Starting Container " + this.container_name);
-        this.status = ContainerStatus.STARTING;
         const running = await this.handleStart();
         if (running)
             this.status = ContainerStatus.RUNNING;
@@ -56,14 +60,25 @@ let Container = class Container {
         return running;
     }
     async init() {
+        if (this.#initialized)
+            return true;
+        this.status = ContainerStatus.INITIALIZING;
+        const initialized = await this.handleInit();
+        if (initialized)
+            this.status = ContainerStatus.STOPPED;
+        else
+            this.status = ContainerStatus.FAILED;
+        this.#initialized = initialized;
+        return initialized;
+    }
+    async handleInit() {
         try {
             await execCommand(`docker run -d --name ${this.container_name} ${this.image}`);
         }
         catch (e) {
-            this.logger.error("error while creating container");
+            this.logger.error("error while creating container", e);
             return false;
         }
-        this.initialized = true;
         return true;
     }
     async updateAfterReplicate() {
@@ -73,10 +88,10 @@ let Container = class Container {
             this.stop();
     }
     async handleStart() {
-        if (!this.initialized) {
-            if (!await this.init())
-                return false;
-        }
+        if (!await this.init())
+            return false;
+        this.logger.info("Starting Container " + this.container_name);
+        this.status = ContainerStatus.STARTING;
         try {
             await execCommand(`docker container start ${this.container_name}`);
         }
@@ -130,6 +145,14 @@ __decorate([
 __decorate([
     property,
     __metadata("design:type", String)
+], Container.prototype, "container_name", void 0);
+__decorate([
+    property,
+    __metadata("design:type", String)
+], Container.prototype, "name", void 0);
+__decorate([
+    property,
+    __metadata("design:type", String)
 ], Container.prototype, "id", void 0);
 __decorate([
     property,
@@ -142,7 +165,7 @@ __decorate([
 __decorate([
     constructor,
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Datex.Addresses.Endpoint]),
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint]),
     __metadata("design:returntype", void 0)
 ], Container.prototype, "construct", null);
 __decorate([
@@ -165,18 +188,37 @@ __decorate([
 ], Container.prototype, "stop", null);
 Container = __decorate([
     sync,
-    __metadata("design:paramtypes", [String, Datex.Addresses.Endpoint])
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint])
 ], Container);
 let WorkbenchContainer = class WorkbenchContainer extends Container {
     config;
-    get container_name() {
-        return `${this.image}`;
-    }
-    constructor(id, owner, config) { super(id, owner); }
-    constructWorkbenchContanier(id, owner, config) {
-        this.construct(id, owner);
+    constructor(owner, config) { super(owner); }
+    constructWorkbenchContanier(owner, config) {
+        this.construct(owner);
         this.config = config;
-        this.logger = new Logger(this);
+        this.name = "unyt Workbench";
+    }
+    async handleInit() {
+        try {
+            const username = "user";
+            const config_exported = Datex.Runtime.valueToDatexString(this.config, true, true, true);
+            this.image = 'unyt-workbench-' + this.config.endpoint.toString().replaceAll('@', '').toLowerCase();
+            logger.info("image: " + this.image);
+            logger.info("config: " + config_exported);
+            logger.info("username: " + username);
+            const tmp_dir = `res/config-files-${new Date().getTime()}`;
+            await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
+            const writer = fs.createWriteStream(`${tmp_dir}/endpoint.dx`);
+            writer.write(config_exported);
+            writer.close();
+            await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${this.image} .`);
+            await execCommand(`rm -r ${tmp_dir}`);
+        }
+        catch (e) {
+            this.logger.error("Error initializing container", e);
+            return false;
+        }
+        return super.handleInit();
     }
     async handleStart() {
         if (!await super.handleStart())
@@ -201,13 +243,69 @@ __decorate([
 __decorate([
     constructor,
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Datex.Addresses.Endpoint, EndpointConfig]),
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint, EndpointConfig]),
     __metadata("design:returntype", void 0)
 ], WorkbenchContainer.prototype, "constructWorkbenchContanier", null);
 WorkbenchContainer = __decorate([
     sync,
-    __metadata("design:paramtypes", [String, Datex.Addresses.Endpoint, EndpointConfig])
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint, EndpointConfig])
 ], WorkbenchContainer);
+let RemoteImageContainer = class RemoteImageContainer extends Container {
+    version;
+    url;
+    constructor(owner, url, version) { super(owner); }
+    constructRemoteImageContainer(owner, url, version) {
+        this.construct(owner);
+        this.version = version;
+        this.url = url;
+        this.name = url;
+    }
+    async update() {
+        try {
+            this.image = `${this.url}${this.version ? ':' + this.version : ''}`;
+            await execCommand(`docker pull ${this.image}`);
+        }
+        catch (e) {
+            this.logger.error("Error initializing container", e);
+            return false;
+        }
+        return true;
+    }
+    async handleInit() {
+        if (!await this.update())
+            return false;
+        return super.handleInit();
+    }
+    async handleStart() {
+        if (!await this.update())
+            return false;
+        return super.handleStart();
+    }
+};
+__decorate([
+    property,
+    __metadata("design:type", String)
+], RemoteImageContainer.prototype, "version", void 0);
+__decorate([
+    property,
+    __metadata("design:type", String)
+], RemoteImageContainer.prototype, "url", void 0);
+__decorate([
+    constructor,
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint, String, String]),
+    __metadata("design:returntype", void 0)
+], RemoteImageContainer.prototype, "constructRemoteImageContainer", null);
+__decorate([
+    property,
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], RemoteImageContainer.prototype, "update", null);
+RemoteImageContainer = __decorate([
+    sync,
+    __metadata("design:paramtypes", [Datex.Addresses.Endpoint, String, String])
+], RemoteImageContainer);
 let ContainerManager = class ContainerManager {
     static async getContainers(meta) {
         return containers.getAuto(meta.sender);
@@ -216,22 +314,17 @@ let ContainerManager = class ContainerManager {
         logger.info("Creating new Workbench Container for " + meta.sender);
         const config = new EndpointConfig();
         config.endpoint = Datex.Addresses.Endpoint.getNewEndpoint();
-        const config_exported = Datex.Runtime.valueToDatexString(config, true, true, true);
-        const image_name = 'unyt-workbench-' + config.endpoint.toString().replaceAll('@', '').toLowerCase();
-        const username = meta.sender.toString().replaceAll('@', '');
-        logger.info("id: " + image_name);
-        logger.info("config: " + config_exported);
-        logger.info("username: " + username);
-        const tmp_dir = `res/config-files-${new Date().getTime()}`;
-        await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
-        const writer = fs.createWriteStream(`${tmp_dir}/endpoint.dx`);
-        writer.write(config_exported);
-        writer.close();
-        await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${image_name} .`);
-        await execCommand(`rm -r ${tmp_dir}`);
-        const container = new WorkbenchContainer(image_name, meta.sender, config);
+        const container = new WorkbenchContainer(meta.sender, config);
         container.start();
         this.addContainer(meta.sender, container);
+        return container;
+    }
+    static async createRemoteImageContainer(url, meta) {
+        logger.info("Creating new Remote Image Container for " + meta.sender, url);
+        const container = new RemoteImageContainer(meta.sender, url);
+        container.start();
+        this.addContainer(meta.sender, container);
+        console.log(containers);
         return container;
     }
     static addContainer(endpoint, container) {
@@ -252,6 +345,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], ContainerManager, "createWorkbenchContainer", null);
+__decorate([
+    meta(1),
+    expose,
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], ContainerManager, "createRemoteImageContainer", null);
 ContainerManager = __decorate([
     root_extension,
     scope

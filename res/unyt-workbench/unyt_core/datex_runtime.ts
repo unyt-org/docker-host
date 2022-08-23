@@ -103,31 +103,38 @@ declare const marked:Function;
 
 const client_type = globalThis.process?.release?.name ? 'node' : 'browser'
 
-// storage
+
+// STORAGE
 type localForage = Storage & {setItem:(key:string,value:any)=>void, getItem:(key:string)=>ArrayBuffer|string|null};
-export let storage: localForage;
-let datex_storage: localForage;
+
+// storage for saving DATEX data (keys, endpoints), files in the .datex directory or IndexDB in the browser
+let datex_storage: Storage;
+
+// db based storage for DATEX value caching (IndexDB in the browser)
+let datex_item_storage: localForage;
 let datex_pointer_storage: localForage;
 
-/***** imports and definitions with top-level await - node.js / browser interoperability *******************************/
+// fallback if no DB storage available localStorage or node-localstorage
+let localStorage = globalThis.localStorage;
 
-if (client_type!="browser") {
+/***** imports and definitions with top-level await - node.js / browser interoperability *******************************/
+const site_suffix = globalThis.location?.pathname ?? '';
+
+if (client_type=="node") {
     // @ts-ignore
     const node_localstorage = (await import("node-localstorage")).default.LocalStorage;
-    storage = new node_localstorage('./keys'); // TODO rename to default_storage
-    datex_storage = new node_localstorage('./dx_storage');
-    datex_pointer_storage = new node_localstorage('./dx_ptr_storage');
+    datex_storage = new node_localstorage('.datex');
+    localStorage = new node_localstorage('./.datex-cache');
 }
 else {
-    const site_suffix = globalThis.location.pathname;
     const localforage = (await import("./lib/localforage/localforage.js")).default;
-    storage = localforage.createInstance({name: "default_storage_"+site_suffix});
-    datex_storage = localforage.createInstance({name: "dx_storage_"+site_suffix});
-    datex_pointer_storage = localforage.createInstance({name: "dx_ptr_storage_"+site_suffix});
+    datex_storage = localforage.createInstance({name: "dx::"+site_suffix});
+    datex_item_storage = localforage.createInstance({name: "dxitem::"+site_suffix});
+    datex_pointer_storage = localforage.createInstance({name: "dxptr::"+site_suffix});
 }
 
-globalThis.storage = storage;
-globalThis.datex_storage = datex_storage;
+globalThis.storage = datex_storage;
+globalThis.datex_storage = datex_item_storage;
 globalThis.datex_pointer_storage = datex_pointer_storage;
 
 // crypto
@@ -246,6 +253,63 @@ export class Observers {
 }
 
 
+declare global {
+    interface Map<K, V> {
+        clear(): void;
+        delete(key: K): boolean;
+        forEach(callbackfn: (value: V, key: K, map: Map<K, V>) => void, thisArg?: any): void;
+        get(key: K): V | undefined;
+        has(key: K): boolean;
+        set(key: K, value: V): this;
+        readonly size: number;
+
+        setAutoDefault(default_class_or_creator_function_or_value:V|any_class<V>|(()=>V)):Map<K, V>;
+        getAuto(key: K): V;
+    }
+  }
+
+type any_class<V> = (new (...args: any[]) => V)|((...args: any[]) => V)|StringConstructor|NumberConstructor|BigIntConstructor|BooleanConstructor;
+
+// extends Map class to automatically create new empty entries when the getAuto() method is called and the entry does not exist
+
+const DEFAULT_CLASS = Symbol('DEFAULT_CLASS')
+const DEFAULT_IS_CLASS = Symbol('DEFAULT_IS_CLASS')
+const DEFAULT_CLASS_PRIMITIVE = Symbol('DEFAULT_CLASS_PRIMITIVE')
+const DEFAULT_CREATOR_FUNCTION = Symbol('DEFAULT_CREATOR_FUNCTION')
+const DEFAULT_VALUE = Symbol('DEFAULT_VALUE')
+
+Map.prototype.setAutoDefault = function<V>(default_class_or_creator_function_or_value:V|any_class<V>|(()=>V)) {
+    // is class
+    if (typeof default_class_or_creator_function_or_value === "function" && default_class_or_creator_function_or_value.prototype !== undefined) {
+        this[DEFAULT_CLASS] = <any_class<V>>default_class_or_creator_function_or_value;
+        this[DEFAULT_IS_CLASS] = true;
+        this[DEFAULT_CLASS_PRIMITIVE] = this[DEFAULT_CLASS] == String || this[DEFAULT_CLASS] == Number  || this[DEFAULT_CLASS] == BigInt || this[DEFAULT_CLASS] == Boolean;
+    }
+    // is function
+    else if (typeof default_class_or_creator_function_or_value === "function") {
+        this[DEFAULT_CREATOR_FUNCTION] = <(()=>V)> default_class_or_creator_function_or_value;
+    }
+    // is value
+    else this[DEFAULT_VALUE] = <V>default_class_or_creator_function_or_value;
+    return this;
+}
+
+Map.prototype.getAuto = function<K,V>(key: K): V {
+    if (!this.has(key)) this.set(key, 
+        this[DEFAULT_CREATOR_FUNCTION] ? 
+            this[DEFAULT_CREATOR_FUNCTION]() : 
+            (this[DEFAULT_IS_CLASS] ? 
+                (this[DEFAULT_CLASS_PRIMITIVE] ?
+                    (this[DEFAULT_CLASS_PRIMITIVE] == BigInt ?
+                    (<((n:number) => V)>this[DEFAULT_CLASS])(0) : 
+                    (<(() => V)>this[DEFAULT_CLASS])()) : 
+                    new (<(new () => V)>this[DEFAULT_CLASS])()) : 
+                this[DEFAULT_VALUE]
+            )
+    );
+    return this.get(key);
+}
+
 export namespace Datex {
 
 // general storage for DATEX Values
@@ -263,24 +327,48 @@ export class Storage {
     
     static cache:Map<string,any> = new Map(); // save stored values in a Map, return when calling getItem
 
-    static state_prefix = "dxstate::"
+    static state_prefix = "dxstate::"+site_suffix+"::"
 
-    static pointer_prefix = "dxptr::"
-    static item_prefix = "dxitem::"
-    static label_prefix = "dxlbl::"
+    static pointer_prefix = "dxptr::"+site_suffix+"::"
+    static item_prefix = "dxitem::"+site_suffix+"::"
+    static label_prefix = "dxlbl::"+site_suffix+"::"
 
+    static #location: Storage.Location
 
-    static #mode: Storage.Mode; // Storage.Mode.SAVE_ON_EXIT
+    static get location() {return this.#location}
+    static set location(location: Storage.Location) {
+        // asynchronous saving on exit not possible in browser
+        if (client_type == "browser" && Storage.mode == Storage.Mode.SAVE_ON_EXIT && location == Storage.Location.DATABASE) throw new Datex.Error("Invalid DATEX Storage location: DATABASE with SAVE_ON_EXIT mode");
+        this.#location = location
+    }
+
+    static #mode: Storage.Mode; // Storage.Mode.SAVE_ON_REQUEST
 
     static set mode(mode: Storage.Mode) {
         this.#mode = mode;
 
-        if (this.#mode == Storage.Mode.SAVE_ON_EXIT) {
+        if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) {
             // page exit listener
-            addEventListener("beforeunload", ()=>{
-                console.log("unload");
-                this.updateLocalStorage();
-            }, {capture: true});
+            if (client_type == "browser") {
+                addEventListener("beforeunload", ()=>{
+                    console.log(`Page exit. Saving DATEX Values in cache...`);
+                    this.updateLocalStorage();
+                }, {capture: true});
+            }
+            // process exit listener
+            else {
+    
+                process.on('exit', (code)=>{
+                    console.log(`Process exit: ${code}. Saving DATEX Values in cache...`);
+                    this.updateLocalStorage();
+                });
+
+                process.on('SIGINT', ()=>process.exit());
+                //process.on('SIGHUP', handler);
+                //process.on('SIGKILL', handler);
+                //process.on('SIGSTOP', handler);
+            }
+            
         }
     }
 
@@ -288,7 +376,18 @@ export class Storage {
         return this.#mode    
     }
 
+    // call to reload page without saving any data (for resetting)
+    static #exit_without_save = false;
+    public static allowExitWithoutSave(){
+        this.#exit_without_save = true;
+    }
+
     static updateLocalStorage(){
+        if (this.#exit_without_save) {
+            console.log(`Exiting without save`);
+            return;
+        }
+
         // update items
         for (let [key, val] of Storage.cache) {
             this.setItem(key, val);
@@ -308,8 +407,8 @@ export class Storage {
         Storage.cache.set(key, value); // save in cache
         const pointer = value instanceof Pointer ? value : Pointer.getByValue(value);
 
-        if (this.mode == Storage.Mode.SAVE_CONTINUOSLY) return this.setItemDB(key, value, pointer, listen_for_pointer_changes);
-        else if (this.mode == Storage.Mode.SAVE_ON_EXIT) return this.setItemLocalStorage(key, value, pointer, listen_for_pointer_changes);
+        if (this.location == Storage.Location.DATABASE) return this.setItemDB(key, value, pointer, listen_for_pointer_changes);
+        else if (this.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) return this.setItemLocalStorage(key, value, pointer, listen_for_pointer_changes);
     }
 
     static setItemLocalStorage(key:string, value:any, pointer?:Datex.Pointer, listen_for_pointer_changes = true):boolean {
@@ -334,13 +433,13 @@ export class Storage {
         logger.debug("storing item in db storage: " + key);
 
         // store value (might be pointer reference)
-        await datex_storage.setItem(key, DatexCompiler.encodeValue(value));  // value to buffer (no header)
+        await datex_item_storage.setItem(key, DatexCompiler.encodeValue(value));  // value to buffer (no header)
         return true;
     }
 
     private static setPointer(pointer:Pointer, listen_for_changes = true):Promise<boolean>|boolean {
-        if (this.mode == Storage.Mode.SAVE_CONTINUOSLY) return this.setPointerDB(pointer, listen_for_changes);
-        else if (this.mode == Storage.Mode.SAVE_ON_EXIT) return this.setPointerLocalStorage(pointer, listen_for_changes);
+        if (this.location == Storage.Location.DATABASE) return this.setPointerDB(pointer, listen_for_changes);
+        else if (this.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) return this.setPointerLocalStorage(pointer, listen_for_changes);
     }
 
     static #local_storage_active_pointers = new Set<Pointer>();
@@ -390,7 +489,7 @@ export class Storage {
     private static synced_pointers = new Set<Pointer>();
 
     static syncPointer(pointer: Pointer) {
-        if (this.mode != Storage.Mode.SAVE_CONTINUOSLY) return;
+        if (this.mode != Storage.Mode.SAVE_AUTOMATICALLY) return;
 
         if (!pointer) {
             logger.error("tried to sync non-existing pointer with storage")
@@ -417,13 +516,13 @@ export class Storage {
     }
 
     public static async hasPointer(pointer:Pointer) {
-        return (await datex_pointer_storage.getItem(pointer.id)) !== null
+        if (this.location == Storage.Location.DATABASE) return (await datex_pointer_storage.getItem(pointer.id)) !== null
+        else if (this.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) return localStorage.getItem(this.pointer_prefix+pointer.id) != null;
     }
 
     public static getPointer(pointer_id:string, pointerify?:boolean):Promise<any>|any {
-
-        if (this.mode == Storage.Mode.SAVE_CONTINUOSLY) return this.getPointerDB(pointer_id, pointerify);
-        else if (this.mode == Storage.Mode.SAVE_ON_EXIT) return this.getPointerLocalStorage(pointer_id, pointerify);
+        if (this.location == Storage.Location.DATABASE) return this.getPointerDB(pointer_id, pointerify);
+        else if (this.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) return this.getPointerLocalStorage(pointer_id, pointerify);
     }
 
     public static async getPointerLocalStorage(pointer_id:string, pointerify?:boolean) {
@@ -474,25 +573,25 @@ export class Storage {
 
 
     private static async removePointer(pointer_id:string) {
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
+        if (Storage.location == Storage.Location.DATABASE) { 
             await datex_pointer_storage.removeItem(pointer_id);
         }
 
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             localStorage.removeItem(this.pointer_prefix+pointer_id);
         }
     }
 
     static async getPointerDecompiled(key:string):Promise<string> {
         // get from datex_storage
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
+        if (Storage.location == Storage.Location.DATABASE) { 
             let buffer = <ArrayBuffer><any>await datex_pointer_storage.getItem(key);
             if (buffer == null) return null;
             return Runtime.decompile(buffer, true, false, true, false);
         }
 
         // get from local storage
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             const base64 = localStorage.getItem(this.pointer_prefix+key);
             if (base64==null) return null;
             return Runtime.decompile(base64ToArrayBuffer(base64), true, false, true, false);
@@ -501,14 +600,14 @@ export class Storage {
 
     static async getItemDecompiled(key:string):Promise<string> {
         // get from datex_storage
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
-            let buffer = <ArrayBuffer><any>await datex_storage.getItem(key);
+        if (Storage.location == Storage.Location.DATABASE) { 
+            let buffer = <ArrayBuffer><any>await datex_item_storage.getItem(key);
             if (buffer == null) return null;
             return Runtime.decompile(buffer, true, false, true, false);
         }
 
         // get from local storage
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             const base64 = localStorage.getItem(this.item_prefix+key);
             if (base64==null) return null;
             return Runtime.decompile(base64ToArrayBuffer(base64), true, false, true, false);
@@ -516,9 +615,9 @@ export class Storage {
     }
 
     static async getItemKeys(){
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) return await datex_storage.keys();
+        if (Storage.location == Storage.Location.DATABASE) return await datex_item_storage.keys();
 
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             const keys = []
             for (let key of Object.keys(localStorage)) {
                 if (key.startsWith(this.item_prefix)) keys.push(key.replace(this.item_prefix,""))
@@ -528,9 +627,9 @@ export class Storage {
     }
 
     static async getPointerKeys(){
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) return await datex_pointer_storage.keys();
+        if (Storage.location == Storage.Location.DATABASE) return await datex_pointer_storage.keys();
 
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             const keys = []
             for (let key of Object.keys(localStorage)) {
                 if (key.startsWith(this.pointer_prefix)) keys.push(key.replace(this.pointer_prefix,""))
@@ -546,14 +645,14 @@ export class Storage {
         if (Storage.cache.has(key)) return Storage.cache.get(key);
 
         // get from datex_storage
-        else if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
-            let buffer = <ArrayBuffer><any>await datex_storage.getItem(key);
+        else if (Storage.location == Storage.Location.DATABASE) { 
+            let buffer = <ArrayBuffer><any>await datex_item_storage.getItem(key);
             if (buffer == null) return null;
             val = await Runtime.decodeValue(buffer);
         }
 
         // get from local storage
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             const base64 = localStorage.getItem(this.item_prefix+key);
             if (base64==null) return null;
             val = await Runtime.decodeValueBase64(base64);
@@ -569,13 +668,13 @@ export class Storage {
         if (Storage.cache.has(key)) return true; // get from cache
         
         // get from datex_storage
-        else if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
-            return (await datex_storage.getItem(key) != null)
+        else if (Storage.location == Storage.Location.DATABASE) { 
+            return (await datex_item_storage.getItem(key) != null)
         }
 
         // get from local storage
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
-            return (await localStorage.getItem(this.item_prefix+key) != null)
+        else if (Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
+            return localStorage.getItem(this.item_prefix+key) != null
         }
 
         return false;
@@ -584,31 +683,29 @@ export class Storage {
     static async removeItem(key:string):Promise<void> {
         if (Storage.cache.has(key)) Storage.cache.delete(key); // delete from cache
 
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
-            await datex_storage.removeItem(key) // delete from db storage
+        if (Storage.location == Storage.Location.DATABASE) { 
+            await datex_item_storage.removeItem(key) // delete from db storage
         }
 
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
+        else if(Storage.location == Storage.Location.FILESYSTEM_OR_LOCALSTORAGE) { 
             await localStorage.removeItem(this.item_prefix+key) // delete from local storage
         }
         
     }
 
+    // clear all storages
     static async clear():Promise<void> {
-        if (Storage.mode == Storage.Mode.SAVE_CONTINUOSLY) { 
-            await datex_storage.clear();
-            await datex_pointer_storage.clear();
-        }
-        else if (Storage.mode == Storage.Mode.SAVE_ON_EXIT) { 
-            for (let key of Object.keys(localStorage)) {
-                if (key.startsWith(this.item_prefix) || key.startsWith(this.pointer_prefix) || key.startsWith(this.label_prefix)) localStorage.removeItem(key);
-            }
+        await datex_item_storage?.clear();
+        await datex_pointer_storage?.clear();
+        await datex_storage?.clear();
+        for (let key of Object.keys(localStorage)) {
+            if (key.startsWith(this.item_prefix) || key.startsWith(this.pointer_prefix) || key.startsWith(this.label_prefix)) localStorage.removeItem(key);
         }
     }
 
     // load saved state
-    static async savedState<T>(name:string, create?:()=>Promise<T>|T):Promise<T extends object ? T : PrimitivePointer<T>> {
-        const state_name = this.state_prefix+name;
+    static async loadOrCreate<T>(id:string|number, create?:()=>Promise<T>|T):Promise<Storage.created_state_value<T>> {
+        const state_name = this.state_prefix+id.toString();
         // already has a saved state
         if (await this.hasItem(state_name)) {
             return await this.getItem(state_name)
@@ -619,21 +716,49 @@ export class Storage {
             await this.setItem(state_name, state, true);
             return <any>state;
         }
-        else throw new Error("Cannot find or create the state '" + name + "'")
+        else throw new Error("Cannot find or create the state '" + id + "'")
     }
 
+
+    // plaintext DATEX Script 'config files' storage (.datex directory in node.js)
+    static async setConfigValue(key:any, value:any) {
+        await datex_storage.setItem(key, Datex.Runtime.valueToDatexStringExperimental(value))
+    }
+    static async getConfigValue(key:any) {
+        const datex = await datex_storage.getItem(key);
+        if (typeof datex != "string" || !datex) return null;
+        else return Datex.Runtime.executeDatexLocally(datex)
+    }
+    static async hasConfigValue(key:any) {
+        return (await datex_storage.getItem(key)) != null;
+    }
 }
+
 
 
 export namespace Storage {
     export enum Mode {
         SAVE_ON_EXIT,
-        SAVE_CONTINUOSLY,
-        SAVE_PERIODICALLY
+        SAVE_AUTOMATICALLY,
     }
+
+    export enum Location {
+        DATABASE,
+        FILESYSTEM_OR_LOCALSTORAGE
+    }
+
+    export type created_state_value<T> = T extends object ? (
+        T extends globalThis.Number ? Datex.Float :
+        T extends globalThis.BigInt ? Datex.Int :
+        T extends globalThis.String ? Datex.String :
+        T extends globalThis.Boolean ? Datex.Boolean :
+        T extends globalThis.ArrayBuffer ? Datex.Buffer :
+        T
+    ) : Datex.PrimitivePointer<T>
 }
 
-Storage.mode = client_type=="browser" ? Storage.Mode.SAVE_ON_EXIT : Storage.Mode.SAVE_CONTINUOSLY;
+Storage.mode = Storage.Mode.SAVE_ON_EXIT // client_type=="browser" ? Storage.Mode.SAVE_ON_EXIT : Storage.Mode.SAVE_CONTINUOSLY;
+Storage.location = Storage.Location.FILESYSTEM_OR_LOCALSTORAGE // client_type=="browser" ? Storage.Mode.SAVE_ON_EXIT : Storage.Mode.SAVE_CONTINUOSLY;
 
 
 class DatexStoragePointerSource implements PointerSource {
@@ -645,14 +770,19 @@ class DatexStoragePointerSource implements PointerSource {
     }
 } 
 
-export const savedState = Storage.savedState;
+export namespace Crypto {
+    export interface ExportedKeySet {
+        sign: [ArrayBuffer, ArrayBuffer],
+        encrypt: [ArrayBuffer, ArrayBuffer]
+    }
+}
 
 /** takes care of encryption, signing, etc.. */
 export class Crypto {
     
     // cached public keys for endpoints
     private static public_keys = new Map<Datex.Addresses.Endpoint, [CryptoKey, CryptoKey]>(); // verify_key, enc_key
-    private static public_keys_exported = new Map<Datex.Addresses.Endpoint, [string, string]>(); // only because node crypto is causing problems
+    private static public_keys_exported = new Map<Datex.Addresses.Endpoint, [ArrayBuffer, ArrayBuffer]>(); // only because node crypto is causing problems
 
     // own keys
     private static rsa_sign_key:CryptoKey
@@ -660,11 +790,11 @@ export class Crypto {
     private static rsa_dec_key:CryptoKey
     private static rsa_enc_key:CryptoKey
 
-    // own keys in base64
-    private static rsa_sign_key_base64:string
-    private static rsa_verify_key_base64:string
-    private static rsa_dec_key_base64:string
-    private static rsa_enc_key_base64:string
+    // own keys as exported ArrayBuffers
+    private static rsa_sign_key_exported:ArrayBuffer
+    private static rsa_verify_key_exported:ArrayBuffer
+    private static rsa_dec_key_exported:ArrayBuffer
+    private static rsa_enc_key_exported:ArrayBuffer
 
     public static available = false; // true if own keys loaded
 
@@ -767,89 +897,122 @@ export class Crypto {
 
 
     // saves public verify and encrypt keys for an endpoint locally
-    static async bindKeys(endpoint:Datex.Addresses.Endpoint, verify_key:string, enc_key:string):Promise<boolean> {
-
+    static async bindKeys(endpoint:Datex.Addresses.Endpoint, verify_key:ArrayBuffer, enc_key:ArrayBuffer):Promise<boolean> {
         if (!(endpoint instanceof Datex.Addresses.Endpoint)) throw new ValueError("Invalid endpoint");
-        if (verify_key && typeof verify_key != "string") throw new ValueError("Invalid verify key");
-        if (enc_key && typeof enc_key != "string") throw new ValueError("Invalid encryption key");
+        if (verify_key && !(verify_key instanceof ArrayBuffer)) throw new ValueError("Invalid verify key");
+        if (enc_key && !(enc_key instanceof ArrayBuffer)) throw new ValueError("Invalid encryption key");
 
         if (this.public_keys.has(endpoint)) return false; // keys already exist
 
-        try {
+        try {            
             this.public_keys.set(endpoint, [
                 verify_key ? await Crypto.importVerifyKey(verify_key) : null,
                 enc_key ? await Crypto.importEncKey(enc_key): null
             ])
             this.public_keys_exported.set(endpoint, [verify_key, enc_key]);
-            return true; 
+            await Datex.Storage.setItem("keys_"+endpoint, [verify_key, enc_key]);
+            return true;
         } catch(e) {
             logger.error(e);
-            throw new Error("Could not register keys for this endpoint (invalid keys or no permisssion)");
+            throw new Error("Could not register keys for endpoint " + endpoint + " (invalid keys or no permisssion)");
         }
     }
+
+    static #waiting_key_requests = new Map<Datex.Addresses.Endpoint, Promise<[CryptoKey, CryptoKey]>>();
     
     // loads keys from network or cache
     static async requestKeys(endpoint:Datex.Addresses.Endpoint):Promise<[CryptoKey, CryptoKey]> {
-        let _keys:object;
+        
+        // already requesting/loading keys for this endpoint
+        if (this.#waiting_key_requests.has(endpoint)) return this.#waiting_key_requests.get(endpoint);
 
-        // first check cache:
-        let cached:string;
-        if (cached=await storage.getItem("_keys_"+endpoint)) {
-            try {
+        let keyPromise:Promise<[CryptoKey, CryptoKey]>;
+        this.#waiting_key_requests.set(endpoint, keyPromise = new Promise(async (resolve, reject)=>{
+
+            let exported_keys:[ArrayBuffer, ArrayBuffer];
+
+            // first check cache:
+            if (exported_keys=await Datex.Storage.getItem("keys_"+endpoint)) {
                 logger.info("getting keys from cache for " + endpoint);
-                _keys = JSON.parse(cached);
-            } catch(e) {}
-        }
-        if (!_keys) {
-            logger.info("requesting keys for " + endpoint);
-            _keys = await NetworkUtils.get_keys(endpoint); // fetch keys from network; TODO blockchain
-            if (_keys) await storage.setItem("_keys_"+endpoint, JSON.stringify(_keys));
-            else {
-                logger.error("could not get keys");
+            }
+            if (!exported_keys) {
+                logger.info("requesting keys for " + endpoint);
+                exported_keys = await NetworkUtils.get_keys(endpoint); // fetch keys from network; TODO blockchain
+                if (exported_keys) await Datex.Storage.setItem("keys_"+endpoint, exported_keys);
+                else {
+                    reject(new Error("could not get keys from network"));
+                    this.#waiting_key_requests.delete(endpoint); // remove from key promises
+                    return;
+                }
+            }
+    
+            // convert to CryptoKeys
+            try {
+                let keys:[CryptoKey, CryptoKey] = [await this.importVerifyKey(exported_keys[0])||null, await this.importEncKey(exported_keys[1])||null];
+                this.public_keys.set(endpoint, keys);
+                resolve(keys);
+                this.#waiting_key_requests.delete(endpoint); // remove from key promises
                 return;
             }
-        }
+            catch (e) {
+                reject(new Error("Error importing keys"));
+                await Datex.Storage.removeItem("keys_"+endpoint);
+                this.#waiting_key_requests.delete(endpoint); // remove from key promises
+                return;
+            }
 
-        // convert to CryptoKeys
-        try {
-            let keys:[CryptoKey, CryptoKey] = [await this.importVerifyKey(_keys[0])||null, await this.importEncKey(_keys[1])||null];
-            this.public_keys.set(endpoint, keys);
-            return keys;
-        }
-        catch (e) {
-            console.log(e);
-            await storage.removeItem("_keys_"+endpoint);
-        }
-        
+        }));
+
+        return keyPromise;
     }
 
 
     // set own public and private keys, returns the exported base64 keys
-    static async loadOwnKeys(verify_key:string|CryptoKey, sign_key:string|CryptoKey, enc_key:string|CryptoKey, dec_key:string|CryptoKey) {
+    static async loadOwnKeys(verify_key:ArrayBuffer|CryptoKey, sign_key:ArrayBuffer|CryptoKey, enc_key:ArrayBuffer|CryptoKey, dec_key:ArrayBuffer|CryptoKey) {
         
-        // keys are base64 strings
-        if (typeof verify_key == "string") this.rsa_verify_key_base64 = verify_key;
-        if (typeof sign_key == "string")   this.rsa_sign_key_base64   = sign_key;
-        if (typeof enc_key == "string")    this.rsa_enc_key_base64    = enc_key;
-        if (typeof dec_key == "string")    this.rsa_dec_key_base64    = dec_key;
+        // export/load keys
 
-        // keys are CryptoKeys, also export to base64
-        if (typeof verify_key != "string") this.rsa_verify_key_base64 = await this.exportPublicKey(verify_key);
-        if (typeof sign_key != "string")   this.rsa_sign_key_base64   = await this.exportPrivateKey(sign_key);
-        if (typeof enc_key != "string")    this.rsa_enc_key_base64    = await this.exportPublicKey(enc_key);
-        if (typeof dec_key != "string")    this.rsa_dec_key_base64    = await this.exportPrivateKey(dec_key);
+        if (verify_key instanceof ArrayBuffer) {
+            this.rsa_verify_key_exported = verify_key;
+            this.rsa_verify_key = await this.importVerifyKey(this.rsa_verify_key_exported);
+        }
+        else {
+            this.rsa_verify_key_exported = await this.exportPublicKey(verify_key);
+            this.rsa_verify_key = verify_key;
+        }
+        
+        if (sign_key instanceof ArrayBuffer) {
+            this.rsa_sign_key_exported = sign_key;
+            this.rsa_sign_key = await this.importSignKey(this.rsa_sign_key_exported);
+        }
+        else {
+            this.rsa_sign_key_exported = await this.exportPrivateKey(sign_key);
+            this.rsa_sign_key = sign_key;
+        }
 
-        // save CryptoKeys
-        this.rsa_verify_key = typeof verify_key != "string"   ? verify_key : await this.importVerifyKey(this.rsa_verify_key_base64);
-        this.rsa_sign_key   = typeof sign_key != "string"     ? sign_key   : await this.importSignKey(this.rsa_sign_key_base64);
-        this.rsa_enc_key    = typeof enc_key != "string"      ? enc_key    : await this.importEncKey(this.rsa_enc_key_base64);
-        this.rsa_dec_key    = typeof dec_key != "string"      ? dec_key    : await this.importDecKey(this.rsa_dec_key_base64);
+        if (enc_key instanceof ArrayBuffer) {
+            this.rsa_enc_key_exported = enc_key;
+            this.rsa_enc_key = await this.importEncKey(this.rsa_enc_key_exported);
+        }
+        else {
+            this.rsa_enc_key_exported = await this.exportPublicKey(enc_key);
+            this.rsa_enc_key = enc_key;
+        }
+
+        if (dec_key instanceof ArrayBuffer) {
+            this.rsa_dec_key_exported = dec_key;
+            this.rsa_dec_key = await this.importDecKey(this.rsa_dec_key_exported);
+        }
+        else {
+            this.rsa_dec_key_exported = await this.exportPrivateKey(dec_key);
+            this.rsa_dec_key = dec_key;
+        }
 
         // save in local endpoint key storage
         this.saveOwnPublicKeysInEndpointKeyMap();
         this.available = true; // encryption / signing now possible
 
-        return [this.rsa_verify_key_base64, this.rsa_sign_key_base64, this.rsa_enc_key_base64, this.rsa_dec_key_base64]
+        return [this.rsa_verify_key_exported, this.rsa_sign_key_exported, this.rsa_enc_key_exported, this.rsa_dec_key_exported]
     }
 
     private static saveOwnPublicKeysInEndpointKeyMap () {
@@ -860,8 +1023,8 @@ export class Crypto {
     }
 
     // returns current public verify + encrypt keys
-    static getOwnPublicKeysBase64():[string, string] {
-        return [this.rsa_verify_key_base64, this.rsa_enc_key_base64]
+    static getOwnPublicKeysExported():[ArrayBuffer, ArrayBuffer] {
+        return [this.rsa_verify_key_exported, this.rsa_enc_key_exported]
     }
     static getOwnPublicKeys():[CryptoKey, CryptoKey] {
         return [this.rsa_verify_key, this.rsa_enc_key]
@@ -869,8 +1032,8 @@ export class Crypto {
 
 
     // returns the current private sign and decrypt keys
-    static getOwnPrivateKeysBase64():[string, string] {
-        return [this.rsa_sign_key_base64, this.rsa_dec_key_base64]
+    static getOwnPrivateKeysExported():[ArrayBuffer, ArrayBuffer] {
+        return [this.rsa_sign_key_exported, this.rsa_dec_key_exported]
     }
     static getOwnPrivateKeys():[CryptoKey, CryptoKey] {
         return [this.rsa_sign_key, this.rsa_dec_key]
@@ -878,7 +1041,7 @@ export class Crypto {
 
 
     // returns current exported public sign + encrypt key for an endpoint, if found
-    static async getEndpointPublicKeys(endpoint:Datex.Addresses.Endpoint):Promise<[string, string]> {
+    static async getEndpointPublicKeys(endpoint:Datex.Addresses.Endpoint):Promise<[ArrayBuffer, ArrayBuffer]> {
         let keys:[CryptoKey, CryptoKey];
         if (this.public_keys.has(endpoint)) keys = this.public_keys.get(endpoint);
         else throw new Error("No public keys available for this endpoint");
@@ -889,14 +1052,14 @@ export class Crypto {
     }
 
     // return already exported keys
-    static async getEndpointPublicKeys2(endpoint:Datex.Addresses.Endpoint):Promise<[string, string]> {
+    static async getEndpointPublicKeys2(endpoint:Datex.Addresses.Endpoint):Promise<[ArrayBuffer, ArrayBuffer]> {
         if (this.public_keys_exported.has(endpoint)) return this.public_keys_exported.get(endpoint);
         else throw new Error("No public keys available for this endpoint");
     }
 
 
     // generate new sign + encryption (public + private) keys, returns base64 verify, sign, enc, dec keys
-    static async createOwnKeys(): Promise<[string, string, string, string]> { 
+    static async createOwnKeys(): Promise<Crypto.ExportedKeySet> { 
         // create new encrpytion key pair
         let enc_key_pair = <CryptoKeyPair> await crypto.subtle.generateKey(
             this.enc_key_options,
@@ -916,44 +1079,56 @@ export class Crypto {
         this.rsa_sign_key = sign_key_pair.privateKey
         this.rsa_verify_key = sign_key_pair.publicKey
 
-        this.rsa_enc_key_base64 = await this.exportPublicKey(this.rsa_enc_key);
-        this.rsa_dec_key_base64 = await this.exportPrivateKey(this.rsa_dec_key);
-        this.rsa_verify_key_base64 = await this.exportPublicKey(this.rsa_verify_key);
-        this.rsa_sign_key_base64 = await this.exportPrivateKey(this.rsa_sign_key);
+        this.rsa_enc_key_exported = await this.exportPublicKey(this.rsa_enc_key);
+        this.rsa_dec_key_exported = await this.exportPrivateKey(this.rsa_dec_key);
+        this.rsa_verify_key_exported = await this.exportPublicKey(this.rsa_verify_key);
+        this.rsa_sign_key_exported = await this.exportPrivateKey(this.rsa_sign_key);
 
         // save in local endpoint key storage
         this.saveOwnPublicKeysInEndpointKeyMap();
         this.available = true; // encryption / signing now possible
 
-        return [this.rsa_verify_key_base64, this.rsa_sign_key_base64,  this.rsa_enc_key_base64, this.rsa_dec_key_base64]
+        return {
+            sign: [this.rsa_verify_key_exported, this.rsa_sign_key_exported],
+            encrypt: [this.rsa_enc_key_exported, this.rsa_dec_key_exported]
+        }
     }
 
     // export an public key to base64
-    public static async exportPublicKey(key: CryptoKey): Promise<string> {
-        return btoa(globalThis.String.fromCharCode.apply(null, new Uint8Array(await crypto.subtle.exportKey("spki", key))));
+    public static async exportPublicKeyBase64(key: CryptoKey): Promise<string> {
+        return btoa(globalThis.String.fromCharCode.apply(null, new Uint8Array(await this.exportPublicKey(key))));
     }
     // export a private key to base64
-    public static async exportPrivateKey(key: CryptoKey): Promise<string> {
-        return btoa(globalThis.String.fromCharCode.apply(null, new Uint8Array(await crypto.subtle.exportKey("pkcs8", key))));
+    public static async exportPrivateKeyBase64(key: CryptoKey): Promise<string> {
+        return btoa(globalThis.String.fromCharCode.apply(null, new Uint8Array(await this.exportPrivateKey(key))));
+    }
+
+    // export an public key
+    public static async exportPublicKey(key: CryptoKey): Promise<ArrayBuffer> {
+        return crypto.subtle.exportKey("spki", key);
+    }
+    // export a private key
+    public static async exportPrivateKey(key: CryptoKey): Promise<ArrayBuffer> {
+        return crypto.subtle.exportKey("pkcs8", key);
     }
 
     // import private keys: sign, dec
-    public static async importSignKey(key_base64: string|ArrayBuffer): Promise<CryptoKey> {
-        let key_buffer = key_base64 instanceof ArrayBuffer ? key_base64 : Uint8Array.from(atob(key_base64), c => c.charCodeAt(0)).buffer;
+    public static async importSignKey(key: string|ArrayBuffer): Promise<CryptoKey> {
+        let key_buffer = key instanceof ArrayBuffer ? new Uint8Array(key) : Uint8Array.from(atob(key), c => c.charCodeAt(0)).buffer;
         return await crypto.subtle.importKey("pkcs8", key_buffer, this.sign_key_generator, true, ["sign"])
     }
-    public static async importDecKey(key_base64: string|ArrayBuffer): Promise<CryptoKey> {
-        let key_buffer = key_base64 instanceof ArrayBuffer ? key_base64 : Uint8Array.from(atob(key_base64), c => c.charCodeAt(0)).buffer;
+    public static async importDecKey(key: string|ArrayBuffer): Promise<CryptoKey> {
+        let key_buffer = key instanceof ArrayBuffer ? new Uint8Array(key) : Uint8Array.from(atob(key), c => c.charCodeAt(0)).buffer;
         return await crypto.subtle.importKey("pkcs8", key_buffer, this.enc_key_import, true, ["decrypt"])
     }
     
     // import public keys: enc, verify
-    public static async importVerifyKey(key_base64: string|ArrayBuffer): Promise<CryptoKey> {
-        let key_buffer = key_base64 instanceof ArrayBuffer ? key_base64 : Uint8Array.from(atob(key_base64), c => c.charCodeAt(0)).buffer;
+    public static async importVerifyKey(key: string|ArrayBuffer): Promise<CryptoKey> {
+        let key_buffer = key instanceof ArrayBuffer ? new Uint8Array(key) : Uint8Array.from(atob(key), c => c.charCodeAt(0)).buffer;
         return await crypto.subtle.importKey("spki", key_buffer, this.sign_key_generator, true, ["verify"])
     }
-    public static async importEncKey(key_base64: string|ArrayBuffer): Promise<CryptoKey> {
-        let key_buffer = key_base64 instanceof ArrayBuffer ? key_base64 : Uint8Array.from(atob(key_base64), c => c.charCodeAt(0));
+    public static async importEncKey(key: string|ArrayBuffer): Promise<CryptoKey> {
+        let key_buffer = key instanceof ArrayBuffer ? new Uint8Array(key) : Uint8Array.from(atob(key), c => c.charCodeAt(0));
         return await crypto.subtle.importKey("spki", key_buffer, this.enc_key_import, true, ["encrypt"])
     }
 
@@ -965,7 +1140,7 @@ export class Crypto {
 export abstract class NetworkUtils {
     /** get public keys for endpoint [unsigned dxb] */
     static _get_keys:globalThis.Function
-    static get_keys (endpoint:Datex.Addresses.Endpoint):Promise<any> {  
+    static get_keys (endpoint:Datex.Addresses.Endpoint):Promise<[ArrayBuffer, ArrayBuffer]> {  
         if (!this._get_keys) this._get_keys = getProxyFunction("get_keys", {scope_name:"network", sign:false, filter:Runtime.main_node});
         return this._get_keys(endpoint)
     }
@@ -985,7 +1160,7 @@ export abstract class NetworkUtils {
 /***** Type definitions */
 
 export type primitive = number|bigint|string|boolean|null|Unit|Datex.Addresses.Target|ArrayBuffer|Type;
-export type fundamental = primitive|{[key:string]:any}|Array<any>|Tuple|Record;
+export type fundamental = primitive|{[key:string]:any}|Array<any>|Tuple;
 
 export type CNF = Datex.Addresses.AndSet<Set<Datex.Addresses.Target|Datex.Addresses.Not<Datex.Addresses.Target>>|Datex.Addresses.Target|Datex.Addresses.Not<Datex.Addresses.Target>>;
 
@@ -1006,7 +1181,7 @@ type datex_sub_scope = {
     active_object?: object|any[],
     auto_obj_index?: number, // increment index for auto object indexation (0,1,2,3,...)
     active_object_new?: boolean, // is true at the beginning when no previous element inside the object exists
-    waiting_key?: string, // key of an object waiting to be assigned, null if currently in array
+    waiting_key?: number|bigint|string, // key of an object waiting to be assigned, null if currently in array
     waiting_vars?: Set<[name:string|number,action?:BinaryCode]>, // variable waiting for a value
     waiting_ptrs?: Set<[ptr:Pointer,action?:BinaryCode]>, // new Pointer waiting for a value
     waiting_internal_vars?: Set<[name:string|number,action?:BinaryCode]>, // internal variable waiting for a value
@@ -1021,7 +1196,7 @@ type datex_sub_scope = {
 
     waiting_range?: [any?, any?], // range (x..y)
 
-    waiting_spread?: boolean, // ... operator
+    waiting_collapse?: boolean, // ... operator
     inner_spread?: boolean, // ... operator, inside element, pass to parent subscope
 
     compare_type?: BinaryCode, // for comparisons (==, <=, ~=, ...)
@@ -1042,6 +1217,7 @@ type datex_sub_scope = {
     wait_freeze?:boolean, // freeze x
     wait_seal?:boolean, // seal x
     has_prop?: boolean, // x has y
+    wait_dynamic_key?: boolean, // (x):y
 
     waiting_for_action?: [type:BinaryCode, parent:any, key:any][], // path waiting for a value
     create_pointer?: boolean, // proxify next value to pointer
@@ -1653,8 +1829,8 @@ export class Markdown {
 export const WITH = 'w';
 
 
-/** <std:Datex> */
-export class CodeBlock {
+/** <std:Scope> */
+export class Scope {
 
     // injected variable names ^= arguments
     internal_vars:any[] = []
@@ -1710,7 +1886,7 @@ export class CodeBlock {
     }
 
     toString(formatted=false, spaces = '  '){
-        return `datex ${this.bodyToString(formatted, true, spaces)}`;
+        return `scope ${this.bodyToString(formatted, true, spaces)}`;
     }
 }
 
@@ -1764,7 +1940,7 @@ export class Stream<T = ArrayBuffer> implements StreamConsumer<T> {
 
     async pipe(in_stream:Stream<T>, scope?: datex_scope) {
         const reader = in_stream.getReader();
-        let next:ReadableStreamDefaultReadResult<T>;
+        let next:ReadableStreamReadResult<T>;
         while (true) {
             next = await reader.read()
             if (next.done) break;
@@ -2187,7 +2363,7 @@ export interface PropertyTypeAssigner {
     getAnonymizingMethods: (class_name:string)=>Set<string>
     getObserverFunctions:  (class_name:string)=>Map<string, any>
     getGeneralObserverFunctions:  (class_name:string)=>Set<string>
-    getMethodParams: (target:any, method_name:string, meta_param_index?:number)=>Datex.Record<Datex.Type>
+    getMethodParams: (target:any, method_name:string, meta_param_index?:number)=>Datex.Tuple<Datex.Type>
     getMethodMetaParamIndex: (target:any, method_name:string)=>number
 }
 
@@ -2695,7 +2871,7 @@ export class Pointer<T = any> extends Value<T> {
             // try to get more type info for the method params (from JS decorators etc.)
             let meta_param_index = this.property_type_assigner.getMethodMetaParamIndex(parent_value, key_in_parent)
             let method_params = this.property_type_assigner.getMethodParams(parent_value, key_in_parent, meta_param_index)
-            return new Function(value, method_params, null, meta_param_index, parent, anonymize_result);
+            return new Function(null, value, Datex.Runtime.endpoint, method_params, null, meta_param_index, parent, anonymize_result);
         }
         throw new ValueError("Cannot auto-cast native value to <Function>");
     }
@@ -2708,7 +2884,7 @@ export class Pointer<T = any> extends Value<T> {
             return [];
         }
         if (deleteCount && deleteCount < 0) deleteCount = 0;
-        return this[DX_PTR]?.handleSplice(start, deleteCount, new Tuple(...items));
+        return this[DX_PTR]?.handleSplice(start, deleteCount, items);
     }
     
 
@@ -2897,10 +3073,10 @@ export class Pointer<T = any> extends Value<T> {
             this.#subscribed = true;
             let pointer_value = result;
 
-            // set function receiver
-            if (pointer_value instanceof Function) {
-                pointer_value.setRemoteEndpoint(endpoint);
-            }
+            // // set function receiver
+            // if (pointer_value instanceof Function) {
+            //     pointer_value.setRemoteEndpoint(endpoint);
+            // }
             this.origin = endpoint;
 
             if (this.value == VOID) return this.setValue(pointer_value); // set value
@@ -3253,9 +3429,9 @@ export class Pointer<T = any> extends Value<T> {
     }
 
     // proxify a (child) value, use the pointer context
-    private proxifyChild(name:any, value:any = NOT_EXISTING) {
-        let child = value == NOT_EXISTING ? this.value[name] : value;
-        
+    private proxifyChild(name:any, value:any) {
+        let child = value === NOT_EXISTING ? this.value[name] : value;
+
         // special native function -> <Function> conversion
         if (typeof child == "function" && !(child instanceof Function)) 
             child = Pointer.convertNativeFunctionToDatexFunction(child, this, name);
@@ -3278,7 +3454,7 @@ export class Pointer<T = any> extends Value<T> {
                 }
 
                 // save property to shadow_object
-                this.shadow_object[name] = this.proxifyChild(name);
+                this.shadow_object[name] = this.proxifyChild(name, NOT_EXISTING);
             }
         }
 
@@ -3360,7 +3536,7 @@ export class Pointer<T = any> extends Value<T> {
 
             const is_array = Array.isArray(obj);
 
-            if (is_array && ! (obj instanceof Tuple)) {
+            if (is_array) {
                 // overwrite special array methods TODO
 
                 Object.defineProperty(obj, "splice", {
@@ -3453,6 +3629,7 @@ export class Pointer<T = any> extends Value<T> {
     }
 
     handleSet(key:any, value:any, ignore_if_unchanged = true) {
+
         if(!this.value) return;
 
         // convert value/key to datex conform value/key
@@ -3628,7 +3805,7 @@ export class Pointer<T = any> extends Value<T> {
     }
 
     /** all values are removed */
-    handleSplice(start_index:number, deleteCount:number, replace:Tuple<bigint>) {
+    handleSplice(start_index:number, deleteCount:number, replace:Array<bigint>) {
         if(!this.value) return;
 
         if (deleteCount == 0 && !replace.length) return; // nothing changes
@@ -3890,9 +4067,9 @@ export class PrimitivePointer<T=any> extends Pointer<T> {
     override get original_value():T {return <T>this.value}
 
     // TODO typescript not working (any)
-    override get value() {return <any>super.value}
+    override get value() {return super.value}
 
-    override set value(_v:any) {
+    override set value(_v:T) {
         const v = Value.collapseValue(_v,true,true);
 
         // set new
@@ -3940,7 +4117,7 @@ export function getProxyFunction(method_name:string, params:{dynamic_filter?:Dat
         
         //console.log("proxy function filter", dynamic_filter, filter)
 
-        let compile_info:compile_info = [`#static.${params.scope_name}.${method_name} ?`, [new Tuple(...args)], {to:filter, sign:params.sign}];
+        let compile_info:compile_info = [`#static.${params.scope_name}.${method_name} ?`, [new Tuple(args)], {to:filter, sign:params.sign}];
         return Runtime.datexOut(compile_info, filter, undefined, true, undefined, undefined, false, undefined, params.timeout);
     }
 }
@@ -3963,7 +4140,7 @@ export function getProxyStaticValue(name:string, params:{dynamic_filter?:Datex.A
 
 export class Task<R=any,E=any> {
 
-    datex:Datex.CodeBlock
+    datex:Datex.Scope
     #executed = false;
     
     promise:Promise<any>
@@ -3974,7 +4151,7 @@ export class Task<R=any,E=any> {
     result: R|E
     state: 0n|1n|2n = 0n // 0 = running, 1 = success, 2 = error
 
-    constructor(datex?:Datex.CodeBlock) {
+    constructor(datex?:Datex.Scope) {
         this.datex = datex;
     }
 
@@ -4036,12 +4213,18 @@ class ExtensibleFunction {
 
 /** function - execute datex or js code - use for normal functions, not for static scope functions */
 export class Function extends ExtensibleFunction implements ValueConsumer, StreamConsumer {
+    
+    public context?: object|Pointer;  // the context (this) in which the function exists, if part of an object
+    public body: Scope
+    public ntarget: (...params:any[])=>any
+    public location:Datex.Addresses.Endpoint
+
     fn:(...params:any[])=>any
-    datex: CodeBlock
+
     allowed_callers:Datex.Addresses.Filter
     serialize_result:boolean // return pointer values, not pointers
     anonymize_result:boolean
-    params: Record<Type>
+    params: Tuple
     params_keys: string[]
 
     meta_index: number
@@ -4050,25 +4233,28 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
 
     about:Markdown
 
-    private context?: object|Pointer;  // the context (this) in which the function exists, if part of an object
     private proxy_fn?: globalThis.Function // in case the function should be called remotely, a proxy function
 
-    constructor(function_or_compiled_datex:((...params:any[])=>any)|CodeBlock, params?:Record<Type>, allowed_callers?:Datex.Addresses.Filter|Datex.Addresses.Target, meta_index=undefined, context?:object|Pointer, anonymize_result=false) {
-        super((...args:any[]) => this.handleApply(new Tuple(...args)));
+    constructor(body:Scope, ntarget:(...params:any[])=>any, location:Datex.Addresses.Endpoint = Runtime.endpoint, params?:Tuple, allowed_callers?:Datex.Addresses.Filter|Datex.Addresses.Target, meta_index=undefined, context?:object|Pointer, anonymize_result=false) {
+        super((...args:any[]) => this.handleApply(new Tuple(args)));
         
         this.meta_index = meta_index;
-        this.params = params??new Record();
-        this.params_keys = Object.keys(this.params);
+        this.params = params??new Datex.Tuple();
+        this.params_keys = [...this.params.named.keys()];
 
-        if (function_or_compiled_datex instanceof CodeBlock) {
+        this.body = body;
+        this.ntarget = ntarget;
+        this.location = location;
+
+        // execute DATEX code
+        if (body instanceof Scope) {
             this.meta_index = 0;
-            this.datex = function_or_compiled_datex;
             let ctx = context instanceof Pointer ? context.value : context;
-            this.fn = (meta, ...args:any[])=>function_or_compiled_datex.execute(this.mapArgs(args), meta.sender, ctx); // execute DATEX code
+            this.fn = (meta, ...args:any[])=>body.execute(this.mapArgs(args), meta.sender, ctx); // execute DATEX code
         }
-        // execute JS code
-        else {
-            this.fn = function_or_compiled_datex;
+        // execute native JS code
+        else if (typeof ntarget == "function") {
+            this.fn = ntarget;
         }
 
         if (allowed_callers instanceof Datex.Addresses.Target) allowed_callers = new Datex.Addresses.Filter(allowed_callers);
@@ -4079,6 +4265,16 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
             enumerable:false,
             value: context
         });
+
+        // update location if currently @@local, as soon as connected to cloud
+        if (this.location == Datex.Addresses.LOCAL_ENDPOINT) {
+            Datex.Runtime.onEndpointChanged((endpoint)=>{
+                logger.info("update local function location for " + Datex.Runtime.valueToDatexString(this))
+                this.location = endpoint;
+            })
+        }
+
+
     }
 
     private mapArgs(args:any[]){
@@ -4092,9 +4288,9 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
     }
 
     // execute this function remotely, set the endpoint
-    setRemoteEndpoint(endpoint: Datex.Addresses.Endpoint){
+    private setRemoteEndpoint(endpoint: Datex.Addresses.Endpoint){
         let filter = new Datex.Addresses.Filter(endpoint); 
-        let my_pointer = <Pointer> Pointer.pointerifyValue(this);
+        //let my_pointer = <Pointer> Pointer.pointerifyValue(this);
 
         let sid = DatexCompiler.generateSID(); // fixed sid to keep order
         
@@ -4107,7 +4303,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
          * ...
          */
         
-        Runtime.datexOut(['_=?;', [my_pointer], {to:filter, end_of_scope:false, sid, return_index: DatexCompiler.getNextReturnIndexForSID(sid)}], filter, sid, false);
+        Runtime.datexOut(['_=?;', [this], {to:filter, end_of_scope:false, sid, return_index: DatexCompiler.getNextReturnIndexForSID(sid)}], filter, sid, false);
 
         this.proxy_fn = async (value: any) => {
             let compile_info:compile_info = [this.serialize_result ? 'value (_ ?);return;' : '_ ?;return;', [value], {to:filter, end_of_scope:false, sid, return_index: DatexCompiler.getNextReturnIndexForSID(sid)}];
@@ -4118,6 +4314,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
                 return res;
             } catch (e) {
                 // error occured during scope execution => scope is broken, can no longer be used => create new scope
+                console.log(e);
                 logger.debug("Error ocurred, resetting DATEX scope for proxy function");
                 this.setRemoteEndpoint(endpoint); // new DATEX scope
                 throw e;
@@ -4136,7 +4333,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
 
     async pipe(in_stream:Stream) {
         const reader = in_stream.getReader();
-        let next:ReadableStreamDefaultReadResult<ArrayBuffer>;
+        let next:ReadableStreamReadResult<ArrayBuffer>;
         while (true) {
             next = await reader.read()
             if (next.done) break;
@@ -4146,6 +4343,10 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
 
     // call the function either from JS directly (meta data is automatically generated, sender is always the current endpoint) or from a DATEX scope
     handleApply(value:any, SCOPE?: datex_scope){
+
+
+        // call function remotely
+        if (!Runtime.endpoint.equals(this.location) && this.location != Datex.Addresses.LOCAL_ENDPOINT) this.setRemoteEndpoint(this.location);
 
         let meta:any; // meta (scope variables)
 
@@ -4180,29 +4381,26 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
             }
         }
 
+        // no function or DATEX provided
+        if (!this.fn) throw new Datex.RuntimeError("Cannot apply values to a <Function> with no executable DATEX or valid native target");
+
         let context = this.context instanceof Value ? this.context.value : this.context;
 
         let params:any[];
-
-        // tuple
-        if (value instanceof Tuple) {
-            // too many arguments
-            if (value.length > this.params_keys.length) throw new RuntimeError("Maximum number of function arguments is " + (this.params_keys.length), SCOPE);
-            else params = value;
-        }
+       
         // record
-        else if (value instanceof Record) {
+        if (value instanceof Tuple) {
             params = [];
-            for (let [key, val] of Object.entries(value)) {
+            for (let [key, val] of value.entries()) {
                 // normal number index
-                if (!isNaN(Number(key))) {
-                    if (Number(key) < 0) throw new RuntimeError("Invalid function arguments: '" + key + "'");
-                    if (Number(key) >= this.params_keys.length) throw new RuntimeError("Maximum number of function arguments is " + (this.params_keys.length), SCOPE);
-                    params[Number(key)] = val;
+                if (!isNaN(Number(key.toString()))) {
+                    if (Number(key.toString()) < 0) throw new RuntimeError("Invalid function arguments: '" + key + "'");
+                    if (Number(key.toString()) >= this.params_keys.length) throw new RuntimeError("Maximum number of function arguments is " + (this.params_keys.length), SCOPE);
+                    params[Number(key.toString())] = val;
                 }
                 // get index of named argument
                 else {
-                    const index = this.params_keys.indexOf(key);
+                    const index = this.params_keys.indexOf(key.toString());
                     if (index == -1) throw new RuntimeError("Invalid function argument: '" + key + "'", SCOPE);
                     params[index] = val; 
                 }
@@ -4218,7 +4416,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
         // argument type checking
         if (this.params) {
             let i = 0;
-            for (let [name, required_type] of Object.entries(this.params)) {
+            for (let [name, required_type] of this.params.entries()) {
                 let actual_type = Type.getValueDatexType(params[i]);
                 if (
                     required_type
@@ -4236,7 +4434,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
             }
         }
 
-        let required_param_nr = Object.keys(this.params).length;
+        let required_param_nr = this.params.size;
         // no meta index, still crop the params to the required size if possible
         if (this.meta_index==undefined) {
             if (required_param_nr==undefined || params.length<=required_param_nr) return this.fn.call(context, ...params);
@@ -4267,7 +4465,7 @@ export class Function extends ExtensibleFunction implements ValueConsumer, Strea
 
 
     bodyToString(formatted=false, parentheses=true, spaces = '  '){
-        if (this.datex) return this.datex.bodyToString(formatted, parentheses, spaces)
+        if (this.body) return this.body.bodyToString(formatted, parentheses, spaces)
         else return '(### native code ###)'; // <Void> 'native code';
     }
 
@@ -4297,20 +4495,96 @@ export class Unit extends Number {
     }
 }
 
-// immutable Tuple
-export class Tuple<T=any> extends Array<T> {
+// Tuple
+export class Tuple<T=any> {
 
-    constructor(...values:any[]){
-        super();
-        if (values.length) {
-            this.push(...values);
-            //Object.freeze(this);
+    // '#' not working with proxy?
+    #indexed:Array<T> = [];
+    #named:Map<string,T> = new Map();
+
+    constructor(initial_value?:T[]|Set<T>|Map<string,T>|Object){
+        if (initial_value instanceof Array || initial_value instanceof Set) {
+            this.#indexed.push(...initial_value);
         }
+        else if (initial_value instanceof Map) {
+            for (const [k,v] of initial_value) this.#named.set(k,v);
+        }
+        else if (typeof initial_value === "object"){
+            for (let [name,value] of Object.entries(initial_value)) this.#named.set(name, value);
+        }
+        else if (initial_value != null) throw new Datex.ValueError("Invalid initial value for <Tuple>");
     }
 
     seal(){
-        Object.seal(this);
+        DatexObject.seal(this);
         return this;
+    }
+
+    get indexed(){
+        return this.#indexed;
+    }
+
+    get named(){
+        return this.#named;
+    }
+
+    // total size (number + string indices)
+    get size(){
+        return this.#named.size + this.#indexed.length;
+    }
+
+    // set value at index
+    set(index:number|bigint|string, value:any) {
+        if (typeof index === "number" || typeof index === "bigint") this.#indexed[Number(index)] = value;
+        else if (typeof index === "string") this.#named.set(index, value);
+        else throw new Datex.ValueError("<Tuple> key must be <String> or <Int>")
+    }
+
+    // get value at index
+    get(index:number|bigint|string) {
+        if (typeof index === "number" || typeof index === "bigint") return this.#indexed[Number(index)];
+        else if (typeof index === "string") return this.#named.get(index);
+        else throw new Datex.ValueError("<Tuple> key must be <String> or <Int>")
+    }
+
+    // return copy of internal array if only number indices
+    toArray() {
+        if (this.#named.size == 0) return [...this.#indexed];
+        else throw new Datex.ValueError("<Tuple> has non-integer indices");
+    }
+
+    // to object
+    toObject() {
+        if (this.#indexed.length == 0) return Object.fromEntries(this.#named);
+        else throw new Datex.ValueError("<Tuple> has integer indices");
+    }
+
+    entries() {
+        return this[Symbol.iterator]();
+    }
+
+    // create full copy
+    clone(){
+        const cloned = new Tuple(this.named);
+        cloned.indexed.push(...this.indexed)
+        return cloned;
+    }
+
+    // push to array
+    push(...values:any[]){
+        this.#indexed.push(...values);
+    }
+
+
+    // push and add
+    spread(other:Tuple) {
+        this.#indexed.push(...other.indexed);
+        for (let [name,value] of other.named.entries()) this.#named.set(name, value);
+    }
+
+    *[Symbol.iterator]() {
+        for (const entry of this.#indexed.entries()) yield entry;
+        for (const entry of this.#named.entries()) yield entry;
     }
 
     // generate Tuple of start..end
@@ -4336,9 +4610,9 @@ const SHADOW_OBJECT = Symbol("SHADOW_OBJECT");
 
 // only "interface" for all DATEX objects, has special hidden properties (symbols) and static methods for object extending
 // base class for all Datex object based types (Record, custom typed values)
-export abstract class DatexObject<T extends {[key:string]:any} = {[key:string]:any}> {
+export abstract class DatexObject {
 
-    constructor(object?:T){
+    constructor(object?:Object){
         if (object) Object.assign(this, object);
     }
 
@@ -4423,7 +4697,7 @@ export abstract class DatexObject<T extends {[key:string]:any} = {[key:string]:a
     }
 
     // always call this method to seal a DatexObject, not Object.seal(...)
-    static seal<T extends object>(object:T):T{
+    static seal(object:Object){
         if (Object.isSealed(object)) return; // already sealed
 
         // add required symbol properties (SET_PROXY)
@@ -4469,7 +4743,7 @@ export abstract class DatexObject<T extends {[key:string]:any} = {[key:string]:a
         return object;
     }
 
-    static freeze(object:object){
+    static freeze(object:Object){
         Object.freeze(object);
         return object;
     }
@@ -4481,12 +4755,10 @@ export abstract class DatexObject<T extends {[key:string]:any} = {[key:string]:a
 }
 
 
-// DatexObject with special behaviour (method calls, ...)
-// is normally sealed
-export class Record<T extends {[key:string]:any} = {[key:string]:any}> extends DatexObject<T> {}
 
 
-export class StaticScope extends Record {
+
+export class StaticScope {
 
     public static STD: StaticScope;
     public static scopes: {[name:string]:StaticScope} = {};
@@ -4500,7 +4772,6 @@ export class StaticScope extends Record {
     }
 
     private constructor(name?:string){
-        super();
         const proxy = <this> Pointer.proxifyValue(this, false, undefined, false);
         if (name) proxy.name = name;
         return proxy;
@@ -4541,7 +4812,7 @@ export class StaticScope extends Record {
 
 
 // typed object
-export class TypedValue<T extends Type = Type> extends DatexObject<T extends Type<infer TT> ? TT : unknown> {
+export class TypedValue<T extends Type = Type> extends DatexObject {
 
     [DX_TYPE]: Type
 
@@ -4608,7 +4879,7 @@ export class SerializedValue extends UnresolvedValue {
 export class Type<T = any> {
 
     // part of the datex standard types, complex or primitive, no specific type casting needed
-    static fundamental_types = ["String", "Float", "Int", "Boolean", "Target", "Endpoint", "Filter", "Null", "Void", "Array", "Object", "Tuple", "Record", "Type", "Buffer", "Datex", "Unit", "Url"]
+    static fundamental_types = ["String", "Float", "Int", "Boolean", "Target", "Endpoint", "Filter", "Null", "Void", "Array", "Object", "Tuple", "Type", "Buffer", "Datex", "Unit", "Url"]
     // have a primitive datex representation:
     static primitive_types = ["String", "Float", "Int", "Boolean", "Null", "Void", "Unit", "Target", "Endpoint", "Buffer", "Type", "Url"];
     // have a custom datex representation (+ all primitive)
@@ -4625,7 +4896,7 @@ export class Type<T = any> {
     namespace:string = 'std'
     name:string = ''
     variation:string = ''
-    parameters:Tuple // special type parameters
+    parameters:any[] // special type parameters
 
     root_type: Type; // DatexType without parameters and variation
     base_type: Type; // DatexType without parameters
@@ -4696,8 +4967,7 @@ export class Type<T = any> {
     }
 
     // maps DATEX template type representation to corresponding typescript types
-    public setTemplate<RE extends Record>(template: RE):Type<Partial<(RE extends Record<infer NT>? {[key in keyof NT]: (NT[key] extends Type<infer TT> ? TT : any ) } : unknown)>>
-    public setTemplate<NT extends object>(template: NT):Type<Partial<({ [key in keyof NT]: (NT[key] extends Type<infer TT> ? TT : any ) })>>
+    public setTemplate<NT extends Object>(template: NT):Type<Partial<({ [key in keyof NT]: (NT[key] extends Type<infer TT> ? TT : any ) })>>
     public setTemplate(template: object) {
         DatexObject.freeze(template);
         this.#template = <any>template;
@@ -4718,14 +4988,14 @@ export class Type<T = any> {
         return this.#template;
     }
 
-    // cast object with template to new <Record>
+    // cast object with template to new <Tuple>
     private createFromTemplate(value:object = {}, assign_to_object:object = new TypedValue(this)):T {
         if (!this.#template) throw new RuntimeError("Type has no template");
         if (!(typeof value == "object")) throw new RuntimeError("Cannot create template value from non-object value");
 
         // add all allowed properties (check template types)
         for (let key of Object.keys(this.#template)) {
-            // @ts-ignore this.#template is always a Record
+            // @ts-ignore this.#template is always a Tuple
             const required_type = this.#template[key];
             
             // no type check available
@@ -4760,8 +5030,8 @@ export class Type<T = any> {
         return <any>(assign_to_object instanceof DatexObject ? DatexObject.seal(assign_to_object) : assign_to_object);
     }
 
-    public createDefaultValue(context?:any, origin:Datex.Addresses.Endpoint = Runtime.endpoint, make_pointer = false){
-        return this.cast({}, context, origin, make_pointer);
+    public createDefaultValue(context?:any, origin:Datex.Addresses.Endpoint = Runtime.endpoint): Promise<any>{
+        return Datex.Runtime.castValue(this, VOID, context, origin);
     }
 
     static #current_constructor:globalThis.Function;
@@ -4795,17 +5065,16 @@ export class Type<T = any> {
         // 'pseudo constructor arguments', multiple args if tuple, if not object! (normal cast), use value as single argument
         let args:any[];
         let is_constructor = true;
-        if (value instanceof Tuple) args = value; // multiple constructor arguments with tuple
-        else if (value instanceof Record) args = Object.values(value); // multiple constructor arguments with tuple (ignores keys!)
+        if (value instanceof Tuple) args = value.toArray(); // multiple constructor arguments with tuple (ignores keys!)
         else if (typeof value != "object" || value === null) args = [value] // interpret any non-object value as a constructor argument
         else {
             args = [];
             is_constructor = false; // is replicated object, not created with constructor arguments
         }
 
-        // create new instance - TODO make adding 'this' as last constructor argument optional
+        // create new instance - TODO 'this' as last constructor argument still required?
         Type.#current_constructor = this.interface_config?.class;
-        let instance = this.interface_config?.class ? Reflect.construct(Type.#current_constructor, is_constructor?[...args,this]:[]) : new TypedValue(this);
+        let instance = this.interface_config?.class ? Reflect.construct(Type.#current_constructor, is_constructor?[...args/*,this*/]:[]) : new TypedValue(this);
         Type.#current_constructor = null;
 
         // initialize properties
@@ -4823,7 +5092,6 @@ export class Type<T = any> {
     }
 
     public construct(instance:any, args:any[], is_constructor = true, make_pointer = false) {
-        // console.log("construct",instance,make_pointer);
         instance[DX_TEMPLATE] = this.#template;
 
         // make pointer?
@@ -4857,7 +5125,7 @@ export class Type<T = any> {
     }
 
 
-    private constructor(namespace?:string, name?:string, variation?:string, parameters?:Tuple) {
+    private constructor(namespace?:string, name?:string, variation?:string, parameters?:any[]) {
         if (name) this.name = name;
         if (namespace) this.namespace = namespace;
         if (variation) this.variation = variation;
@@ -4876,9 +5144,8 @@ export class Type<T = any> {
     }
 
     // get parametrized type
-    public getParametrized(parameters:Tuple|any[]):Type<T>{
-        if (!(parameters instanceof Tuple)) parameters = new Tuple(...parameters);
-        return Type.get(this.namespace, this.name, this.variation, <Tuple>parameters);
+    public getParametrized(parameters:any[]):Type<T>{
+        return Type.get(this.namespace, this.name, this.variation, parameters);
     }
 
     // get type variation
@@ -4935,7 +5202,7 @@ export class Type<T = any> {
                 this.variation?'/'+this.variation:''}${
                 this.parameters?(
                     this.parameters.length == 1 ? '('+Runtime.valueToDatexString(this.parameters[0])+')':
-                    Runtime.valueToDatexString(this.parameters)
+                    '('+this.parameters.map(p=>Runtime.valueToDatexString(p)).join(",")+')'
                 ):''
             }>`;
         }
@@ -4962,14 +5229,14 @@ export class Type<T = any> {
         // or
         if (matches_type.base_type == Type.std.Or) {
             if (!matches_type.parameters) return false;
-            for (let t of matches_type.parameters) {
+            for (let [_,t] of matches_type.parameters) {
                 if (Type._matchesType(type, t)) return true; // any type matches
             }
             return false;
         }
         if (type.base_type == Type.std.Or) {
             if (!type.parameters) return false;
-            for (let t of type.parameters) {
+            for (let [_,t] of type.parameters) {
                 if (Type._matchesType(t, matches_type)) return true; // any type matches
             }
             return false;
@@ -4977,7 +5244,7 @@ export class Type<T = any> {
         // and
         if (matches_type.base_type == Type.std.And) {
             if (!matches_type.parameters) return false;
-            for (let t of matches_type.parameters) {
+            for (let [_,t] of matches_type.parameters) {
                 if (!Type._matchesType(type, t)) return false; // any type does not match
             }
             return true;
@@ -5010,11 +5277,11 @@ export class Type<T = any> {
         return type!=extends_type && Type.matchesType(type, extends_type);
     }
 
-    public static get<T = any>(name:string, parameters?:Tuple):Type<T>
-    public static get<T = any>(namespace:string, name:string, variation?:string, parameters?:Tuple):Type<T>
-    public static get<T = any>(namespace:string, name_or_parameters?:string|Tuple, variation?:string, parameters?:Tuple):Type<T> {
+    public static get<T = any>(name:string, parameters?:any[]):Type<T>
+    public static get<T = any>(namespace:string, name:string, variation?:string, parameters?:any[]):Type<T>
+    public static get<T = any>(namespace:string, name_or_parameters?:string|any[], variation?:string, parameters?:any[]):Type<T> {
         let name:string;
-        if (name_or_parameters instanceof Tuple) parameters = name_or_parameters;
+        if (name_or_parameters instanceof Array) parameters = name_or_parameters;
         else if (typeof name_or_parameters == "string") name = name_or_parameters;
         else if (name_or_parameters!=undefined) throw new TypeError("Invalid type name or parameters");
 
@@ -5076,7 +5343,6 @@ export class Type<T = any> {
 
             if (value instanceof ArrayBuffer || value instanceof NodeBuffer || value instanceof TypedArray) return Type.std.Buffer;
             if (value instanceof Tuple) return Type.std.Tuple;
-            if (value instanceof Record) return Type.std.Record;
             if (value instanceof Array) return Type.std.Array;
 
             if (value instanceof SyntaxError) return Type.std.SyntaxError;
@@ -5103,7 +5369,7 @@ export class Type<T = any> {
             if (value instanceof Datex.Addresses.Target) return Type.std.Target;
             if (value instanceof Datex.Addresses.Filter) return Type.std.Filter;
             if (value instanceof Datex.Addresses.Not) return Type.std.Not;
-            if (value instanceof CodeBlock) return Type.std.Datex;
+            if (value instanceof Scope) return Type.std.Scope;
     
 
             if (typeof value == "object") return Type.std.Object;
@@ -5131,8 +5397,6 @@ export class Type<T = any> {
 
             if (class_constructor == ArrayBuffer || class_constructor == NodeBuffer || TypedArray.isPrototypeOf(class_constructor)) return Type.std.Buffer;
             if (class_constructor == Tuple || Tuple.isPrototypeOf(class_constructor)) return Type.std.Tuple;
-            if (class_constructor == Record || Record.isPrototypeOf(class_constructor)) return Type.std.Record;
-
             if (class_constructor == Array || Array.isPrototypeOf(class_constructor)) return Type.std.Array;
 
             if (class_constructor ==  SyntaxError || SyntaxError.isPrototypeOf(class_constructor)) return Type.std.SyntaxError;
@@ -5159,7 +5423,7 @@ export class Type<T = any> {
             if (class_constructor ==  Datex.Addresses.Target || Datex.Addresses.Target.isPrototypeOf(class_constructor)) return Type.std.Target;
             if (class_constructor ==  Datex.Addresses.Filter || Datex.Addresses.Filter.isPrototypeOf(class_constructor)) return Type.std.Filter;
             if (class_constructor ==  Datex.Addresses.Not || Datex.Addresses.Not.isPrototypeOf(class_constructor)) return Type.std.Not;
-            if (class_constructor ==  CodeBlock || CodeBlock.isPrototypeOf(class_constructor)) return Type.std.Datex;
+            if (class_constructor ==  Scope || Scope.isPrototypeOf(class_constructor)) return Type.std.Scope;
 
             if (class_constructor == Object) return Type.std.Object;
 
@@ -5213,7 +5477,6 @@ export class Type<T = any> {
         Object: Type.get<object>("std:Object"),
         Array: Type.get<Array<any>>("std:Array"),
         Tuple: Type.get<Tuple>("std:Tuple"),
-        Record: Type.get<Record>("std:Record"),
         ExtObject: Type.get<object>("std:ExtObject"),
 
         Type: Type.get<Type>("std:Type"),
@@ -5243,12 +5506,12 @@ export class Type<T = any> {
         SecurityError: Type.get("std:DatexSecurityError"),
         AssertionError: Type.get("std:AssertionError"),
 
-        Datex: Type.get<CodeBlock>("std:Datex"),
+        Scope: Type.get<Scope>("std:Scope"),
 
         And: Type.get<any>("std:And"),
         Or: Type.get<any>("std:Or"),
 
-        // pseudo types
+        // abstract types
         Any: Type.get<any>("std:Any"),
         SyncConsumer: Type.get<any>("std:SyncConsumer"), // <<<
         ValueConsumer: Type.get<any>("std:ValueConsumer"), // any function or stream sink
@@ -5265,7 +5528,7 @@ export class Type<T = any> {
         [BinaryCode.STD_TYPE_NULL]: Type.std.Null,
         [BinaryCode.STD_TYPE_VOID]: Type.std.Void,
         [BinaryCode.STD_TYPE_BUFFER]: Type.std.Buffer,
-        [BinaryCode.STD_TYPE_CODE_BLOCK]: Type.std.Datex,
+        [BinaryCode.STD_TYPE_CODE_BLOCK]: Type.std.Scope,
         [BinaryCode.STD_TYPE_UNIT]: Type.std.Unit,
         [BinaryCode.STD_TYPE_FILTER]: Type.std.Filter,
         [BinaryCode.STD_TYPE_ARRAY]: Type.std.Array,
@@ -5273,7 +5536,6 @@ export class Type<T = any> {
         [BinaryCode.STD_TYPE_SET]: Type.std.Set,
         [BinaryCode.STD_TYPE_MAP]: Type.std.Map,
         [BinaryCode.STD_TYPE_TUPLE]: Type.std.Tuple,
-        [BinaryCode.STD_TYPE_RECORD]: Type.std.Record,
         [BinaryCode.STD_TYPE_FUNCTION]: Type.std.Function,
         [BinaryCode.STD_TYPE_STREAM]: Type.std.Stream,
         [BinaryCode.STD_TYPE_ASSERTION]: Type.std.Assertion,
@@ -5337,6 +5599,7 @@ export class Iterator<T> {
 
     // @property
     val: T;
+    done = false;
 
     internal_iterator: globalThis.Iterator<T>
 
@@ -5346,28 +5609,78 @@ export class Iterator<T> {
 
     // @property
     async next(): Promise<boolean> {
+        if (this.done) return false; // already done
+
         // use internal JS iterator / generator method
         let res = await this.internal_iterator.next()
-        if (!res.done) this.val = res.value;
-        return !res.done;
+        this.val = res.value;
+        this.done = res.done;
+        return !this.done;
     }
 
 
-    public static get(value:any) {
-        if (value instanceof Iterator) return value;
-        if (value instanceof Datex.IterationFunction) {
-            console.log("iterator for iteration function", value)
-        }
-        else {
-            if (value instanceof Map) return new Iterator(value.entries());
-            else if (value instanceof Set) return new Iterator(value.values());
-            else return new Iterator(value?.[Symbol.iterator]? value?.[Symbol.iterator]() : [value][Symbol.iterator]()); // create any other iterator or single value iterator
+    async *[Symbol.iterator] (){
+        while (await this.next()) yield this.val;
+    }
 
+    async collapse():Promise<Datex.Tuple>{
+        let result = new Tuple();
+        while (await this.next()) result.push(this.val)
+        return result;
+    }
+
+
+    // convert value to default iterator
+    public static get<T>(iterator_or_iterable:globalThis.Iterator<T>|globalThis.Iterable<T>|Datex.Iterator<T>|Datex.IterationFunction):Datex.Iterator<T> {
+        if (iterator_or_iterable instanceof Iterator) return iterator_or_iterable;
+        else if (iterator_or_iterable instanceof Datex.IterationFunction) {
+            console.log("iterator for iteration function", iterator_or_iterable)
         }
+        // indexed tuple
+        else if (iterator_or_iterable instanceof Datex.Tuple && iterator_or_iterable.named.size == 0) return new Iterator(Iterator.getJSIterator(iterator_or_iterable.toArray()))
+        else return new Iterator(Iterator.getJSIterator(iterator_or_iterable)); // create any other iterator or single value iterator
+    }
+
+    protected static getJSIterator<T>(iterator_or_iterable:Datex.Iterator<T>|globalThis.Iterator<T>|globalThis.Iterable<T>):globalThis.Iterator<T> {
+        if (iterator_or_iterable instanceof Datex.Iterator) return iterator_or_iterable.internal_iterator;
+        else if (typeof iterator_or_iterable == "function") return iterator_or_iterable;
+        else return (typeof iterator_or_iterable != "string" && iterator_or_iterable?.[Symbol.iterator]) ? 
+            iterator_or_iterable?.[Symbol.iterator]() : 
+            [iterator_or_iterable][Symbol.iterator]()
+    }
+
+    // map globalThis.Iterator with function
+    
+    public static map<T,N>(iterator_or_iterable:Datex.Iterator<T>|globalThis.Iterator<T>|globalThis.Iterable<T>, map:(value:T)=>N):MappingIterator<T,N> {
+        return new MappingIterator(iterator_or_iterable, map);
     }
 
     protected *generator():Generator<T>{}
 }
+
+
+class MappingIterator<T,N> extends Iterator<N> {
+
+    #iterator:globalThis.Iterator<T>;
+    #map:(value:T)=>N;
+
+    constructor(iterator_or_iterable:Datex.Iterator<T>|globalThis.Iterator<T>|globalThis.Iterable<T>, map:(value:T)=>N) {
+        super();
+        this.#iterator = Iterator.getJSIterator(iterator_or_iterable);
+        this.#map = map;
+    }
+
+    protected override *generator() {
+        let result = this.#iterator?.next();
+        while (!result?.done) {
+            console.log("map",result.value)
+            yield this.#map(result.value);
+            result = this.#iterator.next();
+        }
+    }
+    
+}
+
 
 
 export class RangeIterator extends Iterator<int> {
@@ -5443,9 +5756,9 @@ export class RangeIterator extends Iterator<int> {
 
 export class Assertion implements ValueConsumer {
 
-    datex:Datex.CodeBlock
+    datex:Datex.Scope
     
-    constructor(datex?:Datex.CodeBlock) {
+    constructor(datex?:Datex.Scope) {
         this.datex = datex;
     }
 
@@ -6143,6 +6456,19 @@ export namespace Addresses {
             }
         }
 
+
+        public static createNewID():Datex.filter_target_name_id{
+            const id = new DataView(new ArrayBuffer(12));
+            const timestamp = Math.round((new Date().getTime() - DatexCompiler.BIG_BANG_TIME)/1000);
+            id.setUint32(0,timestamp); // timestamp
+            id.setBigUint64(4, BigInt(Math.floor(Math.random() * (2**64)))); // random number
+            return `@@${Datex.Pointer.buffer2hex(new Uint8Array(id.buffer))}`;
+        }
+
+        public static getNewEndpoint():Addresses.IdEndpoint{
+            return IdEndpoint.get(Addresses.Endpoint.createNewID())
+        }
+
     }
 
 
@@ -6351,9 +6677,9 @@ export async function getFileContent(url:string, file_path?:string): Promise<str
     let res;
     try {
         res = await (await fetch(url, {credentials: 'include', mode:'cors'})).text();
-        storage.setItem(url, res);
+        await Datex.Storage.setItem(url, res);
     } catch(e) { // network error or similar - try to get from cache
-        res = storage.getItem(url);
+        res = await Datex.Storage.getItem(url);
     }
     return res;
 }
@@ -6410,7 +6736,7 @@ export class Runtime {
         if (endpoint != Datex.Addresses.LOCAL_ENDPOINT) Pointer.is_local = false;
         else Pointer.is_local = true;
 
-        Observers.call(this,"endpoint");
+        Observers.call(this,"endpoint",this.#endpoint);
     }
 
 
@@ -6440,10 +6766,11 @@ export class Runtime {
         BinaryCode.SUBSCOPE_END, 
         BinaryCode.OBJECT_END, 
         BinaryCode.TUPLE_END, 
-        BinaryCode.RECORD_END, 
 
         BinaryCode.ELEMENT, 
         BinaryCode.ELEMENT_WITH_KEY,
+        BinaryCode.ELEMENT_WITH_INT_KEY,
+        BinaryCode.ELEMENT_WITH_DYNAMIC_KEY,
         BinaryCode.KEY_PERMISSION,
 
         BinaryCode.EQUAL_VALUE,
@@ -6493,7 +6820,7 @@ export class Runtime {
     private static STD_TYPES_ABOUT:Map<Type,Markdown>;
     
     // default static scopes to import?
-    private static default_static_scope: Record = new Record();
+    private static default_static_scope: Tuple = new Tuple();
     // add static scope as root extension
     public static addRootExtension(scope:StaticScope) {
         DatexObject.extend(this.default_static_scope, scope);
@@ -6553,6 +6880,7 @@ export class Runtime {
         }
         return sender_map.get(scope_id)
     }
+
 
     // set key if received from remote endpoint
     protected static async setScopeSymmetricKeyForSender(scope_id:number, sender:Datex.Addresses.Endpoint, key:CryptoKey) {
@@ -6730,7 +7058,7 @@ export class Runtime {
         // multiple blocks
         else {
             const reader = dxb.getReader();
-            let next:ReadableStreamDefaultReadResult<ArrayBuffer>;
+            let next:ReadableStreamReadResult<ArrayBuffer>;
             let end_of_scope = false;
             // read all blocks (before the last block)
             while (true) {
@@ -6857,32 +7185,32 @@ export class Runtime {
         this.STD_STATIC_SCOPE = StaticScope.get("std");
 
         // std/print
-        this.STD_STATIC_SCOPE.setVariable('print',  Pointer.create(null, new Function((meta, ...params:any[])=>{
+        this.STD_STATIC_SCOPE.setVariable('print',  Pointer.create(null, new Function(null, (meta, ...params:any[])=>{
             IOHandler.stdOut(params, meta.sender);
-        }, new Record({value:Type.std.Object}), null, 0), true, undefined, false).value);
+        }, Datex.Runtime.endpoint, new Tuple({value:Type.std.Object}), null, 0), true, undefined, false).value);
 
         // std/printf (formatted output)
-        this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function(async (meta,...params:any[])=>{
+        this.STD_STATIC_SCOPE.setVariable('printf', Pointer.create(null, new Function(null, async (meta,...params:any[])=>{
             await IOHandler.stdOutF(params, meta.sender);
-        }, new Record({value:Type.std.Object}), null, 0), true, undefined, false).value);
+        }, Datex.Runtime.endpoint, new Tuple({value:Type.std.Object}), null, 0), true, undefined, false).value);
 
 
         // std/printn (native output)
-        this.STD_STATIC_SCOPE.setVariable('printn', Pointer.create(null, new Function((meta,...params:any[])=>{
+        this.STD_STATIC_SCOPE.setVariable('printn', Pointer.create(null, new Function(null, (meta,...params:any[])=>{
             logger.success("std.printn >", ...params);
-        }, new Record({value:Type.std.Object}), null, 0), true, undefined, false).value);
+        }, Datex.Runtime.endpoint, new Tuple({value:Type.std.Object}), null, 0), true, undefined, false).value);
 
         // std/read
-        this.STD_STATIC_SCOPE.setVariable('read', Pointer.create(null, new Function((meta, msg_start:any="", msg_end:any="")=>{
+        this.STD_STATIC_SCOPE.setVariable('read', Pointer.create(null, new Function(null, (meta, msg_start:any="", msg_end:any="")=>{
             return IOHandler.stdIn(msg_start, msg_end, meta.sender);
-        }, new Record({msg_start:Type.std.String, msg_end:Type.std.String}), null, 0), true, undefined, false).value);
+        }, Datex.Runtime.endpoint, new Tuple({msg_start:Type.std.String, msg_end:Type.std.String}), null, 0), true, undefined, false).value);
 
         // _ debug methods
 
         // std.sleep
-        this.STD_STATIC_SCOPE.setVariable('sleep', Pointer.create(null, new Function(async (meta, time_ms:bigint)=>{
+        this.STD_STATIC_SCOPE.setVariable('sleep', Pointer.create(null, new Function(null, async (meta, time_ms:bigint)=>{
             return new Promise<void>(resolve=>setTimeout(()=>resolve(), Number(time_ms)));
-        }, new Record({time_ms:Type.std.Int}), null, 0), true, undefined, false).value);
+        }, Datex.Runtime.endpoint, new Tuple({time_ms:Type.std.Int}), null, 0), true, undefined, false).value);
 
         // std.types 
         this.STD_TYPES_ABOUT = await this.parseDatexData(await getFileContent("/unyt_core/dx_data/type_info.dx", './dx_data/type_info.dx')) // await datex('https://docs.unyt.org/unyt_web/unyt_core/dx_data/type_info.dx ()')
@@ -6993,7 +7321,7 @@ export class Runtime {
                 case BinaryCode.DIVIDE: action_string = "/";break;
                 case BinaryCode.AND: action_string = "&";break;
                 case BinaryCode.OR: action_string = "|";break;
-                case BinaryCode.CREATE_POINTER: action_string = "$";break;
+                case BinaryCode.CREATE_POINTER: action_string = ":";break;
 
             }
             return action_string;
@@ -7306,10 +7634,7 @@ export class Runtime {
                     current_scope.push({type:TOKEN_TYPE.VALUE, string: "#remote"});
                     break;
                 }
-                case BinaryCode.SET_VAR_REMOTE:  {
-                    current_scope.push({string: "#remote = "});
-                    break;
-                }
+
                 case BinaryCode.VAR_STATIC: { 
                     current_scope.push({type:TOKEN_TYPE.VALUE, string: "#static"});
                     break;
@@ -7326,29 +7651,7 @@ export class Runtime {
                     current_scope.push({type:TOKEN_TYPE.VALUE, string: "#it"});
                     break;
                 }
-                case BinaryCode.SET_VAR_ITER:  { 
-                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#it = "});
-                    break;
-                }
-                case BinaryCode.VAR_ITER_ACTION: { 
-                    let action_string = actionToString(uint8[current_index++]) // get action specifier
-                    current_scope.push({string:  "#it" + ` ${action_string}= `});
-                    break;
-                }
-        
-                case BinaryCode.VAR_ITER:  { 
-                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#iter"});
-                    break;
-                }
-                case BinaryCode.SET_VAR_ITER:  { 
-                    current_scope.push({type:TOKEN_TYPE.VALUE, string: "#iter = "});
-                    break;
-                }
-                case BinaryCode.VAR_ITER_ACTION: { 
-                    let action_string = actionToString(uint8[current_index++]) // get action specifier
-                    current_scope.push({string:  "#iter" + ` ${action_string}= `});
-                    break;
-                }
+
 
                 case BinaryCode.SET_VAR_RESULT: { 
                     current_scope.push({string: "#result = "});
@@ -7414,39 +7717,43 @@ export class Runtime {
                 // CODE_BLOCK 
                 case BinaryCode.SCOPE_BLOCK: {  
                    
-                    let nr_of_args = data_view.getUint16(current_index, true);   // buffer length
-                    current_index += Uint16Array.BYTES_PER_ELEMENT;
-                    let args = [];
-
-                    // variables
-                    for (let i=0;i<nr_of_args;i++) {
-                        let type:Type|typeof WITH;
-
-                        let token = uint8[current_index++];
-
-                        // get type
-                        if (token == BinaryCode.TYPE) [type] = extractType();
-                        else if (token >= BinaryCode.STD_TYPE_STRING && token <= BinaryCode.STD_TYPE_FUNCTION) type = Type.short_types[token];
-                        else if (token == 1) type = WITH
-
-                        let length = uint8[current_index++];
-
-                        args.push([type, Runtime.utf8_decoder.decode(uint8.subarray(current_index, current_index+length))]);
-                        current_index += length;
-                    }
-                    
-                    // Compiled buffer
-
-                    let buffer_length = data_view.getUint32(current_index, true);
+                    let size = data_view.getUint32(current_index, true);   // buffer length
                     current_index += Uint32Array.BYTES_PER_ELEMENT;
+                    const buffer = uint8.subarray(current_index, current_index+size);
+                    const decompiled = Runtime.decompile(buffer, comments, formatted, formatted_strings, false);
+                    current_index += size;
+                    // current_index += Uint16Array.BYTES_PER_ELEMENT;
+                    // let args = [];
 
-                    let _buffer = buffer.slice(current_index, current_index+buffer_length);
-                    current_index += buffer_length;
+                    // // variables
+                    // for (let i=0;i<nr_of_args;i++) {
+                    //     let type:Type|typeof WITH;
 
-                    // show datex block as default 
-                    let code_block_string = Runtime.valueToDatexString(new CodeBlock(args, _buffer), formatted)
+                    //     let token = uint8[current_index++];
 
-                    current_scope.push({type: TOKEN_TYPE.VALUE, string:code_block_string});
+                    //     // get type
+                    //     if (token == BinaryCode.TYPE) [type] = extractType();
+                    //     else if (token >= BinaryCode.STD_TYPE_STRING && token <= BinaryCode.STD_TYPE_FUNCTION) type = Type.short_types[token];
+                    //     else if (token == 1) type = WITH
+
+                    //     let length = uint8[current_index++];
+
+                    //     args.push([type, Runtime.utf8_decoder.decode(uint8.subarray(current_index, current_index+length))]);
+                    //     current_index += length;
+                    // }
+                    
+                    // // Compiled buffer
+
+                    // let buffer_length = data_view.getUint32(current_index, true);
+                    // current_index += Uint32Array.BYTES_PER_ELEMENT;
+
+                    // let _buffer = buffer.slice(current_index, current_index+buffer_length);
+                    // current_index += buffer_length;
+
+                    // // show datex block as default 
+                    // let code_block_string = Runtime.valueToDatexString(new ScopeBlock(args, _buffer), formatted)
+
+                    current_scope.push({type: TOKEN_TYPE.VALUE, string:'('+decompiled+')'});
 
                     break;
                 }
@@ -7523,6 +7830,12 @@ export class Runtime {
                     break;
                 }
 
+                // SCOPE
+                case BinaryCode.PLAIN_SCOPE: {
+                    current_scope.push({string:"scope "});
+                    break;
+                }
+
                 // TRANSFORM
                 case BinaryCode.TRANSFORM: {
                     current_scope.push({string:"transform "});
@@ -7558,6 +7871,13 @@ export class Runtime {
                     current_scope.push({string:"await "});
                     break;
                 }
+
+                // FUNCTION
+                case BinaryCode.FUNCTION: {
+                    current_scope.push({string:"function "});
+                    break;
+                }
+
 
                 // HOLD
                 case BinaryCode.HOLD: {
@@ -7626,11 +7946,6 @@ export class Runtime {
                     break;
                 }
 
-                // RECORD_START
-                case BinaryCode.RECORD_START: {
-                    enterSubScope(BinaryCode.RECORD_START);
-                    break;
-                }
 
                 // list element with key
                 case BinaryCode.ELEMENT_WITH_KEY: {
@@ -7639,6 +7954,19 @@ export class Runtime {
                     current_index += length;
 
                     current_scope.push({bin:BinaryCode.ELEMENT_WITH_KEY, string:`"${key.replace(/\'/g, "\\'")}": `});
+                    break;
+                }
+
+                case BinaryCode.ELEMENT_WITH_INT_KEY: {
+                    let key = data_view.getUint32(current_index);
+                    current_index += Uint32Array.BYTES_PER_ELEMENT;
+
+                    current_scope.push({bin:BinaryCode.ELEMENT_WITH_KEY, string:`${key}: `});
+                    break;
+                }
+
+                case BinaryCode.ELEMENT_WITH_DYNAMIC_KEY: {
+                    current_scope.push({bin:BinaryCode.ELEMENT_WITH_KEY, string:`: `});
                     break;
                 }
 
@@ -7657,8 +7985,7 @@ export class Runtime {
                 // ARRAY_END, OBJECT_END, TUPLE_END, RECORD_END
                 case BinaryCode.ARRAY_END:
                 case BinaryCode.OBJECT_END:
-                case BinaryCode.TUPLE_END:
-                case BinaryCode.RECORD_END: {
+                case BinaryCode.TUPLE_END: {
                     try {
                         exitSubScope()
                     } catch (e) {
@@ -7683,7 +8010,6 @@ export class Runtime {
                 case BinaryCode.STD_TYPE_SET:
                 case BinaryCode.STD_TYPE_MAP:
                 case BinaryCode.STD_TYPE_TUPLE:
-                case BinaryCode.STD_TYPE_RECORD:
                 case BinaryCode.STD_TYPE_STREAM:
                 case BinaryCode.STD_TYPE_ANY:
                 case BinaryCode.STD_TYPE_ASSERTION:
@@ -7920,6 +8246,12 @@ export class Runtime {
                     break;
                 }
 
+                // SCOPE
+                case BinaryCode.PLAIN_SCOPE: {
+                    current_scope.push({string: `scope `});
+                    break;
+                }
+
                 // VALUE
                 case BinaryCode.VALUE: {
                     current_scope.push({string: `value `});
@@ -7960,7 +8292,7 @@ export class Runtime {
                     break;
                 }
 
-                // CREATE_POINTER ($ ())
+                // CREATE_POINTER ($$ ())
                 case BinaryCode.CREATE_POINTER: {
                     current_scope.push({string: `$$`});
                     break;
@@ -8006,7 +8338,7 @@ export class Runtime {
                         datex_tmp += "("
                         //indentation = 5;
                     } 
-                    else if (current_token.bin == BinaryCode.TUPLE_START || current_token.bin == BinaryCode.RECORD_START) datex_tmp += "("
+                    else if (current_token.bin == BinaryCode.TUPLE_START) datex_tmp += "("
                     else if (current_token.bin == BinaryCode.ARRAY_START) datex_tmp += "["
                     else if (current_token.bin == BinaryCode.OBJECT_START) datex_tmp += "{"
 
@@ -8014,7 +8346,7 @@ export class Runtime {
 
                     // close bracket
                     if (current_token.bin == BinaryCode.SUBSCOPE_START) datex_tmp += ")"
-                    else if (current_token.bin == BinaryCode.TUPLE_START || current_token.bin == BinaryCode.RECORD_START) datex_tmp += ")"
+                    else if (current_token.bin == BinaryCode.TUPLE_START) datex_tmp += ")"
                     else if (current_token.bin == BinaryCode.ARRAY_START) datex_tmp += "]"
                     else if (current_token.bin == BinaryCode.OBJECT_START) datex_tmp += "}"
                 }
@@ -8045,7 +8377,7 @@ export class Runtime {
             return (indentation? " ".repeat(indentation) : "") +  datex_tmp.replace(/\n/g, "\n" + (" ".repeat(indentation)))
         }
 
-        let datex_string = parse_tokens(tokens) + append_comments;
+        let datex_string = (parse_tokens(tokens) + append_comments).replace(/\n$/,''); // remove last newline
         
         return datex_string;
     }
@@ -8159,12 +8491,13 @@ export class Runtime {
 
                     
                     target_list.push(target)
-    
+
                     // get attached symmetric key?
                     let has_key = header_uint8[i++];
+
                     if (has_key) {
                         // add to keys
-                        if (target == this.endpoint) encrypted_key = header_uint8.slice(i, i+512);
+                        if (this.endpoint.equals(<Addresses.Endpoint>target)) encrypted_key = header_uint8.slice(i, i+512);
                         i += 512;
                     }
                 }
@@ -8652,8 +8985,13 @@ export class Runtime {
         // hello (also temp: get public keys)
         else if (header.type == DatexProtocolDataType.HELLO) {
             if (return_value) {
-                let keys_updated = await Crypto.bindKeys(header.sender, ...<[string,string]>return_value);
-                console.log("HELLO from " + header.sender +  ", keys "+(keys_updated?"":"not ")+"updated");
+                try {
+                    let keys_updated = await Crypto.bindKeys(header.sender, ...<[ArrayBuffer,ArrayBuffer]>return_value);
+                    console.log("HELLO from " + header.sender +  ", keys "+(keys_updated?"":"not ")+"updated");
+                }
+                catch (e) {
+                    logger.error("Invalid HELLO keys");
+                }
             }
             else console.log("HELLO from " + header.sender +  ", no keys");
         }
@@ -8760,35 +9098,25 @@ export class Runtime {
                 case Type.std.Tuple: {
                     if (old_value === VOID) new_value = new Tuple().seal();
                     else if (old_value instanceof Array){
-                        new_value = new Tuple(...old_value).seal();
+                        new_value = new Tuple(old_value).seal();
                     }
                     else if (old_value instanceof Set) {
-                        new_value = new Tuple(...old_value).seal();
+                        new_value = new Tuple(old_value).seal();
                     }
                     else if (old_value instanceof Map){
-                        new_value = new Tuple(...old_value.entries()).seal();
+                        new_value = new Tuple(old_value.entries()).seal();
+                    }
+                    else if (old_value instanceof Iterator){
+                        new_value = await old_value.collapse()
                     }
                     else new_value = new Tuple(old_value).seal();
                     break;
                 }
-                case Type.std.Record: {
-                    if (old_value === VOID) new_value = DatexObject.seal(new Record());
-                    else if (old_value instanceof Set) {
-                        new_value = DatexObject.seal(new Record([...old_value]));
-                    }
-                    else if (old_value instanceof Map){
-                        new_value = DatexObject.seal(new Record(Object.fromEntries(old_value)));
-                    }
-                    else if (typeof old_value == "object"){
-                        new_value = DatexObject.seal(new Record(old_value));
-                    }
-                    else new_value = INVALID;
-                    break;
-                }
+                
 
                 case Type.std.Array: {
                     if (old_value === VOID) new_value = Array()
-                    else if (old_value instanceof Tuple) new_value = [...old_value];
+                    else if (old_value instanceof Tuple) new_value = old_value.toArray();
                     else if (old_value instanceof Set) new_value = [...old_value];
                     else if (old_value instanceof Map) new_value = [...old_value.entries()];
                     else new_value = INVALID;
@@ -8907,12 +9235,10 @@ export class Runtime {
                 }
 
                 case Type.std.Function: {
-                    // if (old_value instanceof CodeBlock) {
-                    //     new_value = new Function(old_value, null, undefined, undefined, context) //, DatexRuntime.endpoint);
-                    // }
-                    // else if (typeof old_value == "object") new_value = new Function(VOID, undefined, undefined, undefined, context);
-                    // else 
-                    new_value = INVALID;
+                    if (old_value instanceof Tuple) {
+                        new_value = new Function(old_value.get('body'), null, old_value.get('location'), null, undefined, undefined, old_value.get('context'));
+                    }
+                    else new_value = INVALID;
                     break;
                 }
                 
@@ -8922,7 +9248,7 @@ export class Runtime {
                     else new_value = INVALID;
                     break;
                 }
-                case Type.std.Datex: {
+                case Type.std.Scope: {
                     new_value = INVALID;
                     break;
                 }
@@ -8981,8 +9307,10 @@ export class Runtime {
         if (typeof value == "string" || typeof value == "boolean" || typeof value == "number" || typeof value == "bigint") return value;
         // directly return, cannot be overwritten
         if (value === VOID || value === null || value instanceof Datex.Addresses.Endpoint || value instanceof Unit || value instanceof Type) return value;
+        if (value instanceof Datex.Scope) return value;
         if (value instanceof URL) return value;
-        if (value instanceof Function) return value;
+        // TODO fix recursive context problem
+        if (value instanceof Function) return new Datex.Tuple({/*context:value.context,*/ body:value.body, location:value.location});
         // collapse wildcard target
         if (value instanceof Datex.Addresses.WildcardTarget) return value.target;
         // normal ArrayBuffer does not need to be serialized further:
@@ -9017,24 +9345,26 @@ export class Runtime {
 
         // Array or object: allow all keys/values
         else if (value instanceof Array) {
-            serialized = value instanceof Tuple ? new Tuple() : [];
+            serialized = [];
             for (let i=0; i<value.length; i++){
                 serialized[i] = value[i];
             }
         }
+
+        else if (value instanceof Tuple) serialized = value.clone();
     
         // type with fixed visible children -> check which properties are actually available to DATEX
         else if ((type = Type.getValueDatexType(value)) && type.visible_children) {
-            serialized = value instanceof Record ? new Record() : {};
+            serialized = {};
             const type = Type.getValueDatexType(value)
             for (let key of type.visible_children){
                 serialized[key] = value[key];
-            }
+            }            
         }
 
         // is object
         else if (typeof value == "object") {
-            serialized = value instanceof Record ? new Record() : {};
+            serialized = {};
             for (let [key, val] of Object.entries(value)){
                 serialized[key] = val
             }
@@ -9053,9 +9383,9 @@ export class Runtime {
         a = Value.collapseValue(a,true,true);
         b = Value.collapseValue(b,true,true);
 
-        // empty Tuple/Record equals void
-        if (a === VOID && (b instanceof Tuple || b instanceof Record) && Object.keys(b).length == 0) return true;
-        if (b === VOID && (a instanceof Tuple || a instanceof Record) && Object.keys(a).length == 0) return true;
+        // empty Tuple equals void
+        if (a === VOID && b instanceof Tuple && Object.keys(b).length == 0) return true;
+        if (b === VOID && a instanceof Tuple && Object.keys(a).length == 0) return true;
 
         // compare ints/floats
         if ((typeof a == "number" || typeof a == "bigint") && (typeof b == "number" || typeof b == "bigint")) return a == b;
@@ -9109,6 +9439,15 @@ export class Runtime {
         function r() {return w.replace(new RegExp(`^(.{${pos}})(.)`), `$1${dot}$2`)}
     }
 
+
+
+    // converts values to string by compiling and decompiling (Decompiler not yet 100% correct)
+    // resolves recursive structures and references correctly, compared to valueToDatexString
+    static valueToDatexStringExperimental(value: any, deep_clone = false, collapse_value = false, formatted = false){
+        return Datex.Runtime.decompile(DatexCompiler.encodeValue(value, undefined, false, deep_clone, collapse_value), true, formatted, formatted, false);
+    }
+
+
     /** converts any value to its datex representation 
      * 
      * @param formatted adds line breaks and indentations
@@ -9117,6 +9456,8 @@ export class Runtime {
      * @param pointer_anchors add start and end sequence (e.g. html) around a pointer
      * @return value as DATEX Script string
      */
+
+
     static valueToDatexString(value:any, formatted = false, collapse_pointers = false, deep_collapse = false, pointer_anchors?:[string,string]): string {
         return this._valueToDatexString(value, formatted, 0, collapse_pointers, deep_collapse, pointer_anchors);
     }
@@ -9132,7 +9473,7 @@ export class Runtime {
         if (value instanceof Pointer && value.is_anonymous) value = value.original_value;
 
         // check for recursive objects
-        if (parents.has(value)) return (value instanceof Tuple || value instanceof Record) ? "(...)"  : (value instanceof Array ? "[...]" : "{...}");
+        if (parents.has(value)) return value instanceof Tuple ? "(...)"  : (value instanceof Array ? "[...]" : "{...}");
 
         // get type
         let type = value instanceof Pointer ? Type.std.Object : Type.getValueDatexType(value);
@@ -9168,7 +9509,7 @@ export class Runtime {
         else if (value instanceof ArrayBuffer || value instanceof NodeBuffer || value instanceof TypedArray) {
             string = "`"+Pointer.buffer2hex(value instanceof Uint8Array ? value : new Uint8Array(value instanceof TypedArray ? value.buffer : value), null, null)+"`"
         }
-        else if (value instanceof CodeBlock || value instanceof Function) {
+        else if (value instanceof Scope) {
             let spaces = Array(this.FORMAT_INDENT*(depth+1)).join(' ');
             string = value.toString(formatted, spaces);
         }
@@ -9194,10 +9535,28 @@ export class Runtime {
             string = value.toString();
         }
 
-        // array like objects (<Array>, <Tuple>)
+        else if (value instanceof Tuple && _serialized) {
+            parents.add(value);
+            let brackets = ['(', ')'];
+            if (value instanceof Tuple && value.indexed.length == 1 && value.named.size == 0) string = Type.std.Tuple.toString();
+            else string = "";
+            string += brackets[0] + (formatted ? "\n":"")
+            let first = true;
+            let spaces = Array(this.FORMAT_INDENT*(depth+1)).join(' ');
+            for (let [k,v] of value) {
+                if (!first) string += ", " + (formatted ? "\n":"")
+                // named property
+                if (typeof k == 'string')  string += (formatted ? spaces:"") + `${k.match(Runtime.TEXT_KEY) ? k : Runtime.escapeString(k, false)}: ` + this._valueToDatexString(v, formatted, depth+1, false, deep_collapse, pointer_anchors, false, new Set(parents))
+                // indexed property
+                else string +=  (formatted ? spaces:"") + this._valueToDatexString(v, formatted, depth+1, false, deep_collapse, pointer_anchors, false, new Set(parents))
+                first = false;
+            }
+            string += (formatted ? "\n"+Array(this.FORMAT_INDENT*depth).join(' '):"") + brackets[1];
+        }
+        // <Array>
         else if (value instanceof Array && _serialized) {
             parents.add(value);
-            let brackets = value instanceof Tuple ? ['(', ')'] : ['[', ']'];
+            let brackets = ['[', ']'];
             string = ((value instanceof Tuple && value.length == 0) ? Type.std.Tuple.toString() : "") + brackets[0] + (formatted ? "\n":"")
             // make clear tuple with only 1 element is a tuple (...)
             if (value instanceof Tuple && value.length == 1) string += "...";
@@ -9213,9 +9572,9 @@ export class Runtime {
         // all other sorts of object
         else if ((typeof value == "object" || value instanceof Function /*also an object*/) && _serialized) { // must be a 'JSON' object  
             parents.add(value);   
-            let brackets = value instanceof Record ? ['(', ')'] : ['{', '}'];
+            let brackets = ['{', '}'];
             let entries = Object.entries(value);
-            string =  ((value instanceof Record && entries.length == 0) ? Type.std.Record.toString() : "") + brackets[0] + (formatted ? "\n":"");
+            string = brackets[0] + (formatted ? "\n":"");
             let first = true;
             let spaces = Array(this.FORMAT_INDENT*(depth+1)).join(' ');
             for (let [key, v] of entries) {
@@ -9230,6 +9589,7 @@ export class Runtime {
             let serialized = value!=null ? this.serializeValue(value) : value;
             serialized = Pointer.pointerifyValue(serialized); // try to get a pointer from serialized
 
+
             if (serialized == VOID) string = "()"; // display void as ()
             else if (type?.is_primitive) string = this._valueToDatexString(serialized, formatted, depth, true, deep_collapse, pointer_anchors, false, new Set(parents)) // is primitive type - use original value
             else string = this._valueToDatexString(serialized, formatted, depth, true, deep_collapse, pointer_anchors, true, new Set(parents)) // is complex or fundamental type
@@ -9239,8 +9599,8 @@ export class Runtime {
             string = "void";
         }
 
-        // type cast required: if not primitive and complex and not <Function> (type is represented as 'fun')
-        if (type && !type.is_primitive && type.is_complex && !(value instanceof Function)) string  = type.toString() + (formatted ? " ":"") + string;
+        // type cast required: if not primitive and complex
+        if (type && !type.is_primitive && type.is_complex && type != Datex.Type.std.Scope) string = type.toString() + (formatted ? " ":"") + string;
 
         return string;
     }
@@ -9257,7 +9617,7 @@ export class Runtime {
         exitSubScope: (SCOPE: datex_scope) => Promise<any>,
         newSubScope: (SCOPE: datex_scope) => Promise<void>,
         closeSubScopeAssignments: (SCOPE: datex_scope) => Promise<void>,
-        handleAssignAction: (SCOPE: datex_scope, action_type: BinaryCode | -1, parent: any, key: any, value: any, current_val?: any) => void,
+        handleAssignAction: (SCOPE: datex_scope, action_type: BinaryCode | -1, parent: any, key: any, value: any, current_val?: any) => Promise<void>,
         checkPointerReadPermission: (parent: any, key: string) => void,
         checkPointerUpdatePermission: (parent: any, key: string) => void,
         countValue: (value: any) => bigint,
@@ -9375,7 +9735,7 @@ export class Runtime {
 
             SCOPE.sub_scopes.pop();
             SCOPE.inner_scope = SCOPE.sub_scopes[SCOPE.sub_scopes.length-1];
-            if (inner_spread) SCOPE.inner_scope.waiting_spread = true;
+            if (inner_spread) SCOPE.inner_scope.waiting_collapse = true;
 
             return result // return last result
         },
@@ -9427,7 +9787,7 @@ export class Runtime {
             if (INNER_SCOPE.waiting_ptrs?.size) {
                 for (let p of INNER_SCOPE.waiting_ptrs) {
                     if (p[1] == undefined) p[0].setValue(el); // is set
-                    else Runtime.runtime_actions.handleAssignAction(SCOPE, p[1], null, null, el, p[0]); // other action on pointer
+                    else await Runtime.runtime_actions.handleAssignAction(SCOPE, p[1], null, null, el, p[0]); // other action on pointer
                 }
                 did_assignment = true;
             }
@@ -9456,7 +9816,7 @@ export class Runtime {
                         // else 
                         SCOPE.inner_scope.root[v[0]] = el; 
                     }
-                    else Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], SCOPE.inner_scope.root, v[0], el); // other action on variable
+                    else await Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], SCOPE.inner_scope.root, v[0], el); // other action on variable
                 }
                 did_assignment = true;
             }          
@@ -9467,7 +9827,7 @@ export class Runtime {
                 
                 // assign for all waiting
                 while (action = INNER_SCOPE.waiting_for_action.pop()) {
-                    Runtime.runtime_actions.handleAssignAction(SCOPE, action[0], action[1], action[2], el);   
+                    await Runtime.runtime_actions.handleAssignAction(SCOPE, action[0], action[1], action[2], el);   
                 }
 
                 did_assignment = true;
@@ -9508,7 +9868,7 @@ export class Runtime {
                         else if (v[0] == 'remote') parent = SCOPE;  // parent is SCOPE, key is 'remote';
                         else if (v[0] == 'it') parent = SCOPE;  // parent is SCOPE, key is 'it';
 
-                        Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], parent, key, el);
+                        await Runtime.runtime_actions.handleAssignAction(SCOPE, v[1], parent, key, el);
                     }
                 }
             }
@@ -9522,41 +9882,19 @@ export class Runtime {
             else if (!did_assignment && el !== VOID) INNER_SCOPE.result = el;
         },
 
-        handleAssignAction(SCOPE:datex_scope, action_type:BinaryCode|-1, parent:any, key:any, value:any, current_val?:any){
+        async handleAssignAction(SCOPE:datex_scope, action_type:BinaryCode|-1, parent:any, key:any, value:any, current_val?:any){
 
-            // set
+            // collapse iterator key to tuple
+            if (key instanceof Iterator) key = await key.collapse();
+
+            // set value
             if (action_type == -1) {
-                Runtime.runtime_actions.setProperty(SCOPE, parent, key, value);
+               Runtime.runtime_actions.setProperty(SCOPE, parent, key, value);
             }
             // all other actions (+=, -=, ...)
             else {
                 Runtime.runtime_actions.assignAction(SCOPE, action_type, parent, key, value, current_val);
             }
-
-            // switch (action_type) {
-
-            //     // set
-            //     case -1:
-            //         break;
-
-            //     case BinaryCode.ADD: 
-            //     case BinaryCode.SUBTRACT: 
-            //         DatexRuntime.runtime_actions.assignAction(SCOPE, action_type, parent, key, value, current_val);
-            //         break;
-
-            //     // $= (set pointer value)
-            //     case BinaryCode.CREATE_POINTER: 
-            //         current_val = DatexPointer.proxifyValue(current_val);
-            //         console.log(parent, key,value, current_val);
-            //         if (current_val instanceof DatexPointer) current_val.value = value;
-            //         else throw new DatexRuntimeError("Invalid pointer value assignment");
-            //         break;
-
-            //     // set
-            //     default: // (-1) 
-              
-                
-            // }       
         },
 
 
@@ -9604,7 +9942,7 @@ export class Runtime {
                 // default hidden properties
                 }
                 else if (typeof parent == "object") {
-                    if (typeof key != "string" && !(parent instanceof Datex.Record)) throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
+                    if (typeof key != "string") throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
                     else if (DEFAULT_HIDDEN_OBJECT_PROPERTIES.has(key) || (parent && !(key in parent))) return false;
                     else return true; // plain object
                 }
@@ -9637,7 +9975,7 @@ export class Runtime {
             // has no properties
             if (!Type.doesValueHaveProperties(parent)) throw new ValueError("Value of type "+Type.getValueDatexType(parent)+" has no properties", SCOPE);
             
-            // key is * - get tuple with all values
+            // key is * - get iterator with all values
             if (key === WILDCARD) {
                 parent = Value.collapseValue(parent,true,true);
                 let values = JSInterface.handleGetAllValues(parent);
@@ -9653,18 +9991,26 @@ export class Runtime {
                     // list of object property keys
                     else keys = Object.keys(parent);
                     if (!(Symbol.iterator in keys)) throw new RuntimeError("Value keys are not iterable", SCOPE);
-                    return Runtime.runtime_actions.getProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(...keys));
+                    return Runtime.runtime_actions.getProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(keys));
                 }
                 else if (values == INVALID) throw new ValueError("Value has no iterable content", SCOPE);
                 
                 if (!(Symbol.iterator in values)) throw new RuntimeError("Value keys are not iterable", SCOPE);
-                return values instanceof Tuple ? values: new Tuple(...values);
+                return values instanceof Tuple ? values: new Tuple(values);
             }
             // key is <Tuple> - get multiple properties (recursive)
             else if (key instanceof Tuple) {
-                let multi_result = new Tuple();
-                for (let k of key) multi_result.push(Runtime.runtime_actions.getProperty(SCOPE, parent, k));
-                return multi_result.seal();
+                return Iterator.map(key.toArray(), (k)=>Runtime.runtime_actions.getProperty(SCOPE, parent, k))
+                // let multi_result = new Tuple();
+                // for (let k of key.toArray()) multi_result.push(Runtime.runtime_actions.getProperty(SCOPE, parent, k));
+                // return multi_result.seal();
+            }
+            // key is <Iterator> - get multiple properties (recursive)
+            else if (key instanceof Iterator) {
+                return Iterator.map(key, (k)=>Runtime.runtime_actions.getProperty(SCOPE, parent, k))
+                //let multi_result = new Tuple();
+                // for (let k of key.toArray()) multi_result.push(Runtime.runtime_actions.getProperty(SCOPE, parent, k));
+                // return multi_result.seal();
             }
 
             parent = Value.collapseValue(parent,true,true);
@@ -9681,14 +10027,12 @@ export class Runtime {
                 if (parent instanceof Addresses.Endpoint) return parent.getSubspace(key?.toString());
                 // invalid key type
                 if (parent instanceof Array && typeof key != "bigint" ) throw new ValueError("Invalid key for <Array> - must be of type <Int>", SCOPE);
-                // sealed record TODO replace with Object.hasOwn(parent, key)
-                else if (parent instanceof Record && !parent.hasOwnProperty(key)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Record>", SCOPE)
                 // sealed tuple
                 else if (parent instanceof Tuple && !(key in parent)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Tuple>", SCOPE)
                 // sealed or frozen
                 else if ((Object.isSealed(parent) || Object.isFrozen(parent)) && !parent.hasOwnProperty(key)) throw new ValueError("Property '"+key.toString()+"' does not exist", SCOPE)
                 // not a key string in a normal object
-                else if (typeof key != "string" && !(parent instanceof Array) && !(parent instanceof Datex.Record)) throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
+                else if (typeof key != "string" && !(parent instanceof Array)) throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
                 // default hidden properties
                 else if (DEFAULT_HIDDEN_OBJECT_PROPERTIES.has(key) || (parent && !(key in parent))) return VOID;
                 // get value
@@ -9737,11 +10081,11 @@ export class Runtime {
                         let keys = JSInterface.handleKeys(parent);
                         // note: keys == NOT_EXISTING is always false since hasPseudoClass == true
                         if (keys == INVALID || keys == NOT_EXISTING) throw new ValueError("Value has no iterable content", SCOPE);
-                        Runtime.runtime_actions.setProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(...keys), value);
+                        Runtime.runtime_actions.setProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(keys), value);
                     }
                 }
 
-                else if (value instanceof Record && (typeof parent == "object")) {
+                else if (value instanceof Tuple && (typeof parent == "object")) {
                     DatexObject.extend(parent, value); // link value, don't copy
                 }
                
@@ -9758,7 +10102,7 @@ export class Runtime {
                     // list of object property keys
                     else keys = Object.keys(parent);
                     if (!(Symbol.iterator in keys)) throw new RuntimeError("Value keys are not iterable", SCOPE);
-                    Runtime.runtime_actions.setProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(...keys), value);
+                    Runtime.runtime_actions.setProperty(SCOPE, Pointer.pointerifyValue(parent), new Tuple(keys), value);
                 }
                 return;
             }
@@ -9767,19 +10111,14 @@ export class Runtime {
             else if (key instanceof Tuple) {
                 // distribute values over keys (tuple)
                 if (value instanceof Tuple) {
-                    for (let i=0; i<key.length; i++) {
-                        Runtime.runtime_actions.setProperty(SCOPE, parent, key[i], value[i])
-                    }
-                }
-                // set values for specific keys (record)
-                else if (value instanceof Record) {
-                    for (let [k, v] of value) {
+                    for (let [k, v] of Object.entries(value)) {
                         Runtime.runtime_actions.setProperty(SCOPE, parent, k, v)
                     }
                 }
+
                 // set same value for all keys
                 else {
-                    for (let k of key) Runtime.runtime_actions.setProperty(SCOPE, parent, k, value)
+                    for (let k of key.toArray()) Runtime.runtime_actions.setProperty(SCOPE, parent, k, value)
                 }
                 return;
             }
@@ -9817,7 +10156,7 @@ export class Runtime {
                     o_parent?.enableUpdatesForAll();
                     throw new ValueError("Invalid key for <Array> - must be of type <Int>", SCOPE);
                 } 
-                else if (typeof key != "string" && !(parent instanceof Array) && !(parent instanceof Datex.Record)) {
+                else if (typeof key != "string" && !(parent instanceof Array)) {
                     o_parent?.enableUpdatesForAll();
                     throw new ValueError("Invalid key for <Object> - must be of type <String>", SCOPE);
                 }
@@ -9836,10 +10175,8 @@ export class Runtime {
                     if (type.template && !type.isPropertyAllowed(key)) throw new ValueError("Property '" + key + '" does not exist');
                     if (type.template && !type.isPropertyValueAllowed(key, value)) throw new ValueError("Property '" + key + "' must be of type " + type.getAllowedPropertyType(key));
 
-                    // check sealed record TODO replace with Object.hasOwn(parent, key)
-                    if (parent instanceof Record && !parent.hasOwnProperty(key)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Record>", SCOPE)
                     // check sealed tuple
-                    else if (parent instanceof Tuple && !(key in parent)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Tuple>", SCOPE)
+                    if (parent instanceof Tuple && !(key in parent)) throw new ValueError("Property '"+key.toString()+"' does not exist in <Tuple>", SCOPE)
                     
                     // now set the value
                     try {
@@ -9895,36 +10232,33 @@ export class Runtime {
                     else keys = Object.keys(parent);
                     if (!(Symbol.iterator in keys)) throw new RuntimeError("Value keys are not iterable", SCOPE);
                 }
-                Runtime.runtime_actions.assignAction(SCOPE, action_type, Pointer.pointerifyValue(parent), new Tuple(...keys), value);
+                Runtime.runtime_actions.assignAction(SCOPE, action_type, Pointer.pointerifyValue(parent), new Tuple(keys), value);
                 return;
             }
 
             // key is <Tuple> - multiple properties action (recursive)
             else if (key instanceof Tuple) {
+                // TODO
+                const array = key.toArray();
                 // distribute values over keys
                 if (value instanceof Tuple) {
-                    for (let i=0; i<key.length; i++) {
-                        Runtime.runtime_actions.assignAction(SCOPE, action_type, parent, key[i], value[i])
+                    for (let i=0; i<array.length; i++) {
+                        Runtime.runtime_actions.assignAction(SCOPE, action_type, parent, array[i], value[i])
                     }
                 }
                 // use same value for all keys
                 else {
-                    for (let k of key) Runtime.runtime_actions.assignAction(SCOPE, action_type, parent, k, value)
+                    for (let k of array) Runtime.runtime_actions.assignAction(SCOPE, action_type, parent, k, value)
                 }
                 return;
             }
 
             // custom += actions
             else if (action_type == BinaryCode.ADD) {
-                // insert new key-value pairs from record
-                if (value instanceof Record) {
-                    DatexObject.extend(current_val, value) // link value, don't copy
-                    return;
-                }
                 // spread insert tuple
-                else if (value instanceof Tuple) {
+                if (value instanceof Tuple) {
                     if (current_val instanceof Array) {
-                        for (let v of value) {
+                        for (let v of value.indexed) {
                             Runtime.runtime_actions.assignAction(SCOPE, action_type, null, null, v, current_val);
                         }
                     }
@@ -10014,8 +10348,10 @@ export class Runtime {
                             else throw new ValueError("Failed to perform a subtract operation on this value", SCOPE)
                             break;
 
+                        // set reference
                         case BinaryCode.CREATE_POINTER:
-                            if (current_val instanceof PrimitivePointer) current_val.value = value_prim; // primitive pointer value update
+
+                            if (current_val instanceof Pointer) current_val.value = value_prim; // primitive pointer value update
                             else throw new ValueError("Pointer value assignment not possible on this value", SCOPE)
                             break;
 
@@ -10175,7 +10511,7 @@ export class Runtime {
 
                     waiting_range: s.waiting_range,
 
-                    waiting_spread: s.waiting_spread,
+                    waiting_collapse: s.waiting_collapse,
 
                     compare_type: s.compare_type,
 
@@ -10249,6 +10585,16 @@ export class Runtime {
                 return;
             }
 
+            if (INNER_SCOPE.wait_dynamic_key) {
+                let key = el;
+                console.log("DYN>",key);
+                // add key for next value
+                INNER_SCOPE.waiting_key = key;       
+                INNER_SCOPE.wait_dynamic_key = false;
+                Datex.Runtime.runtime_actions.enterSubScope(SCOPE);
+                return;
+            }
+
             if (INNER_SCOPE.wait_iterator) {
                 INNER_SCOPE.active_value = $$(Datex.Iterator.get(el));
                 delete INNER_SCOPE.wait_iterator;
@@ -10264,13 +10610,13 @@ export class Runtime {
                 }
                 else if (el instanceof Datex.Tuple) {
                     delete INNER_SCOPE.wait_await;
-                    INNER_SCOPE.active_value = await Promise.all(el.map(v=>v.promise)); // TODO await non-local task
+                    INNER_SCOPE.active_value = await Promise.all(el.indexed.map(v=>v.promise)); // TODO await non-local task
                     return;
                 }
             }
 
             if (INNER_SCOPE.wait_hold) {
-                if (el instanceof CodeBlock) {
+                if (el instanceof Scope) {
                     const lazy_value = new Datex.LazyValue(el);
                     INNER_SCOPE.active_value = lazy_value;
                 }
@@ -10281,8 +10627,9 @@ export class Runtime {
 
             // type parameters <x()> - required for type cast
             if (INNER_SCOPE.waiting_ext_type) {
-                if (!(el instanceof Tuple)) el = new Tuple(el);
-                el = INNER_SCOPE.waiting_ext_type.getParametrized(el);
+                if (!(el instanceof Tuple)) el = new Tuple([el]);
+                if (el.size) el = INNER_SCOPE.waiting_ext_type.getParametrized((<Tuple>el).toArray());
+                else el = INNER_SCOPE.waiting_ext_type;
                 INNER_SCOPE.waiting_ext_type = null;
             }
 
@@ -10385,49 +10732,88 @@ export class Runtime {
 
             // insert
             
-            // inside Array / Tuple
+            // inside Array
             else if (INNER_SCOPE.active_object && (INNER_SCOPE.active_object instanceof Array)) {
-                // spread tuple
-                if (el instanceof Tuple) INNER_SCOPE.active_object.push(...el)
-                // handle record
-                else if (el instanceof Record) {
-                    // smart tuple -> record conversion, if record inserted into tuple!
-                    if (INNER_SCOPE.active_object instanceof Tuple) {
-                        INNER_SCOPE.active_object = new Record(INNER_SCOPE.active_object);
-                        for (let [key, value] of Object.entries(el)) INNER_SCOPE.active_object[key] = value; // spread record
+                // collapse ...
+                if (INNER_SCOPE.waiting_collapse) {
+                    INNER_SCOPE.waiting_collapse = false;
+
+                    if (el instanceof Iterator) INNER_SCOPE.active_object.push(...(await el.collapse()).toArray());
+                    else if (el instanceof Tuple) INNER_SCOPE.active_object.push(...el.toArray());
+                    else if (el instanceof Array) INNER_SCOPE.active_object.push(...el);
+                    else throw new ValueError("Cannot collapse value")
+                }
+
+                // key insert (integer)
+                else if ('waiting_key' in INNER_SCOPE) {
+                    if (typeof INNER_SCOPE.waiting_key == "bigint") INNER_SCOPE.active_object[Number(INNER_SCOPE.waiting_key)] = el;
+                    else throw new Datex.ValueError("<Array> key must be <Int>");
+
+                    // add key permission
+                    if (INNER_SCOPE.key_perm) {
+                        console.log("array key permission", INNER_SCOPE.waiting_key, INNER_SCOPE.key_perm, el);
+                        if (!INNER_SCOPE.active_object[DX_PERMISSIONS]) INNER_SCOPE.active_object[DX_PERMISSIONS] = {};
+                        INNER_SCOPE.active_object[DX_PERMISSIONS][INNER_SCOPE.waiting_key] = INNER_SCOPE.key_perm;
+                        delete INNER_SCOPE.key_perm;
                     }
-                    // add Record to Array
-                    else INNER_SCOPE.active_object.push(el)
-                    //throw new DatexValueError("Cannot insert Record into <Array>", SCOPE);
+
+                    delete INNER_SCOPE.waiting_key;
                 }
-                // spread others (normal array)
-                else if (INNER_SCOPE.waiting_spread) {
-                    INNER_SCOPE.waiting_spread = false;
-                    if (el instanceof Array) INNER_SCOPE.active_object.push(...el)
-                    else INNER_SCOPE.active_object.push(el)
-                }
+
                 // insert normally into array
                 else INNER_SCOPE.active_object.push(el)
             }
+            
+            // inside Tuple
+            else if (INNER_SCOPE.active_object && (INNER_SCOPE.active_object instanceof Tuple)) {
+                // collapse ...
+                if (INNER_SCOPE.waiting_collapse) {
+                    INNER_SCOPE.waiting_collapse = false;
 
-            // inside Object / Record
+                    if (el instanceof Iterator) INNER_SCOPE.active_object.push(...(await el.collapse()).toArray());
+                    else if (el instanceof Tuple) INNER_SCOPE.active_object.spread(el);
+                    else if (el instanceof Array) INNER_SCOPE.active_object.push(...el);
+                    else throw new ValueError("Cannot collapse value")
+                }
+
+                // key insert
+                else if ('waiting_key' in INNER_SCOPE) {
+                    INNER_SCOPE.active_object.set(INNER_SCOPE.waiting_key, el);
+
+                    // add key permission
+                    if (INNER_SCOPE.key_perm) {
+                        console.log("tuple key permission", INNER_SCOPE.waiting_key, INNER_SCOPE.key_perm, el);
+                        if (!INNER_SCOPE.active_object[DX_PERMISSIONS]) INNER_SCOPE.active_object[DX_PERMISSIONS] = {};
+                        INNER_SCOPE.active_object[DX_PERMISSIONS][INNER_SCOPE.waiting_key] = INNER_SCOPE.key_perm;
+                        delete INNER_SCOPE.key_perm;
+                    }
+
+                    delete INNER_SCOPE.waiting_key;
+                }
+
+                // push
+                else {
+                    INNER_SCOPE.active_object.push(el);
+                }
+
+            }
+            
+            // inside Object / Tuple
             else if (INNER_SCOPE.active_object) {
 
-                // extend object if no key provided or spread operator present (...)
-                if ((INNER_SCOPE.waiting_key == undefined && (el instanceof Record || el instanceof Tuple)) ||
-                  (INNER_SCOPE.waiting_spread && typeof el == "object")
-                ) {
-                    DatexObject.extend(INNER_SCOPE.active_object, el);  // linked references
+                // collapse ...
+                if (INNER_SCOPE.waiting_collapse) {
+                    INNER_SCOPE.waiting_collapse = false;
+
+                    if (el instanceof Tuple) Object.assign(INNER_SCOPE.active_object, el.toObject());
+                    else if (Datex.Type.getValueDatexType(el) == Datex.Type.std.Object) Object.assign(INNER_SCOPE.active_object, el)
+                    else throw new ValueError("Cannot collapse value")
                 }
-                
-                else {
-                    // auto index?
-                    if (INNER_SCOPE.waiting_key == undefined) {
-                        if (INNER_SCOPE.auto_obj_index == undefined) INNER_SCOPE.auto_obj_index = 0;
-                        INNER_SCOPE.waiting_key = (INNER_SCOPE.auto_obj_index++).toString();
-                    }
-                    // insert normally
-                    INNER_SCOPE.active_object[INNER_SCOPE.waiting_key] = el;
+
+                // key insert
+                else if ('waiting_key' in INNER_SCOPE) {
+                    if (typeof INNER_SCOPE.waiting_key == "string") INNER_SCOPE.active_object[INNER_SCOPE.waiting_key] = el;
+                    else throw new Datex.ValueError("<Object> key must be <String>");
 
                     // add key permission
                     if (INNER_SCOPE.key_perm) {
@@ -10436,9 +10822,12 @@ export class Runtime {
                         INNER_SCOPE.active_object[DX_PERMISSIONS][INNER_SCOPE.waiting_key] = INNER_SCOPE.key_perm;
                         delete INNER_SCOPE.key_perm;
                     }
+
+                    delete INNER_SCOPE.waiting_key;
                 }
-                if (INNER_SCOPE.waiting_spread) INNER_SCOPE.waiting_spread = false;
-                INNER_SCOPE.waiting_key = undefined;
+
+                else throw new Datex.ValueError("<Object> key cannot be void")
+   
             }
             
             // jtr or jfa
@@ -10749,22 +11138,33 @@ export class Runtime {
                 }
                 // types
                 else if (el instanceof Type && val instanceof Type) {
-                    let params = new Tuple();
-                    if (el.base_type == Type.std.And) params.push(...el.parameters)
-                    else params.push(el)
+                    // let params = new Tuple();
+                    // if (el.base_type == Type.std.And) params.spread(el.parameters)
+                    // else params.push(el)
 
-                    if (val.base_type == Type.std.And) params.push(...val.parameters)
-                    else params.push(val)
+                    // if (val.base_type == Type.std.And) params.spread(val.parameters)
+                    // else params.push(val)
                     
-                    INNER_SCOPE.active_value = Type.std.And.getParametrized(params);
+                    // INNER_SCOPE.active_value = Type.std.And.getParametrized(params);
                 }
                 // booleans
                 else if (typeof val == "boolean" && typeof el == "boolean"){
                     INNER_SCOPE.active_value = val && el;
                 }
+
+                // create conjunctive (&) value by extending
                 else {
-                    throw new ValueError("Cannot perform a logic AND operation on this value", SCOPE)               
+                    const base_type = Datex.Type.getValueDatexType(val);
+
+                    const base = await base_type.createDefaultValue();
+                    DatexObject.extend(base, val);
+                    DatexObject.extend(base, el);
+                    INNER_SCOPE.active_value = base;
                 }
+
+                // else {
+                //     throw new ValueError("Cannot perform a logic AND operation on this value", SCOPE)               
+                // }
                 delete INNER_SCOPE.operator;
                 delete INNER_SCOPE.negate_operator;
             }
@@ -10792,14 +11192,14 @@ export class Runtime {
                 }
                 // types
                 else if (el instanceof Type && val instanceof Type) {
-                    let params = new Tuple();
-                    if (el.base_type == Type.std.Or) params.push(...el.parameters)
-                    else params.push(el)
+                    // let params = new Tuple();
+                    // if (el.base_type == Type.std.Or) params.spread(el.parameters)
+                    // else params.push(el)
 
-                    if (val.base_type == Type.std.Or) params.push(...val.parameters)
-                    else params.push(val)
+                    // if (val.base_type == Type.std.Or) params.spread(val.parameters)
+                    // else params.push(val)
                     
-                    INNER_SCOPE.active_value = Type.std.Or.getParametrized(params);
+                    // INNER_SCOPE.active_value = Type.std.Or.getParametrized(params);
                 }
                 // booleans
                 else if (typeof val == "boolean" && typeof el == "boolean"){
@@ -10839,21 +11239,21 @@ export class Runtime {
                 // repeat tuples n times
                 else if (val instanceof Tuple && typeof el == "bigint") {
                     if (el<0) throw new ValueError("Cannot multiply <Tuple> with negative <Int>", SCOPE)
-                    INNER_SCOPE.active_value = new Tuple(...new Array(Number(el)).fill(val).flat()).seal();
+                    INNER_SCOPE.active_value = new Tuple(new Array(Number(el)).fill(val).flat()).seal();
                 }
                 else if (typeof val == "bigint" && el instanceof Tuple) {
                     if (val<0) throw new ValueError("Cannot multiply <Tuple> with negative <Int>", SCOPE)
-                    INNER_SCOPE.active_value = new Tuple(...new Array(Number(val)).fill(el).flat()).seal();
+                    INNER_SCOPE.active_value = new Tuple(new Array(Number(val)).fill(el).flat()).seal();
                 }
                 // repeat void n times
                 else if (val === VOID && typeof el == "bigint") {
                     if (el<0) throw new ValueError("Cannot multiply <Tuple> with negative <Int>", SCOPE)
-                    INNER_SCOPE.active_value = new Tuple(...new Array(Number(el)).fill(VOID)).seal();
+                    INNER_SCOPE.active_value = new Tuple(new Array(Number(el)).fill(VOID)).seal();
                 }
                 else if (typeof val == "bigint" && el === VOID) {
                     console.log("multiple", val ,el)
                     if (val<0) throw new ValueError("Cannot multiply <Tuple> with negative <Int>", SCOPE)
-                    INNER_SCOPE.active_value = new Tuple(...new Array(Number(val)).fill(VOID)).seal();
+                    INNER_SCOPE.active_value = new Tuple(new Array(Number(val)).fill(VOID)).seal();
                 }
                 else {
                     throw new ValueError("Cannot perform a multiply operation on this value", SCOPE)
@@ -11361,26 +11761,13 @@ export class Runtime {
                     await this.runtime_actions.insertToScope(SCOPE, SCOPE.it);
                     break;
                 }
-                case BinaryCode.VAR_ITER: {
-                    let val:any;
-                    if ('iter' in SCOPE.internal_vars) val = SCOPE.internal_vars['iter'];
-                    else {
-                        throw new RuntimeError("Internal variable #iter does not exist", SCOPE);
-                    }
-                    // insert to scope
-                    await this.runtime_actions.insertToScope(SCOPE, val);
-                    break;
-                }
+
                 case BinaryCode.SET_VAR_IT: { 
                     if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
                     SCOPE.inner_scope.waiting_internal_vars.add(['it']);
                     break;
                 }
-                case BinaryCode.SET_VAR_ITER: { 
-                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
-                    SCOPE.inner_scope.waiting_internal_vars.add(['iter']);
-                    break;
-                }
+
                 case BinaryCode.SET_VAR_RESULT: { 
                     if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
                     SCOPE.inner_scope.waiting_internal_vars.add(['result']);
@@ -11396,11 +11783,7 @@ export class Runtime {
                     SCOPE.inner_scope.waiting_internal_vars.add(['root']);
                     break;
                 }
-                case BinaryCode.SET_VAR_REMOTE: { 
-                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
-                    SCOPE.inner_scope.waiting_internal_vars.add(['remote']);
-                    break;
-                }
+
                 case BinaryCode.VAR_RESULT_ACTION: { 
                     /** wait for buffer */
                     if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
@@ -11452,17 +11835,6 @@ export class Runtime {
                     SCOPE.inner_scope.waiting_internal_vars.add(['it', action]);
                     break;
                 }
-                case BinaryCode.VAR_ITER_ACTION: {
-                    /** wait for buffer */
-                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
-                    /********************/
-                    let action = SCOPE.buffer_views.uint8[SCOPE.current_index++];
-
-                    if (!SCOPE.inner_scope.waiting_internal_vars) SCOPE.inner_scope.waiting_internal_vars = new Set();
-                    SCOPE.inner_scope.waiting_internal_vars.add(['iter', action]);
-                    break;
-                }
-
 
                 
                 // VARIABLE  
@@ -11575,7 +11947,7 @@ export class Runtime {
                     
                     let buffer = this.runtime_actions.extractScopeBlock(SCOPE);
                     if (buffer === false) return Runtime.runtime_actions.waitForBuffer(SCOPE);
-                    const code_block = buffer ? new CodeBlock(INNER_SCOPE.scope_block_vars, buffer, true): null;
+                    const code_block = buffer ? new Scope(INNER_SCOPE.scope_block_vars, buffer, true): null;
 
                     // TRANSFORM
                     if (INNER_SCOPE.scope_block_for == BinaryCode.TRANSFORM) {
@@ -11602,6 +11974,12 @@ export class Runtime {
                         await this.runtime_actions.insertToScope(SCOPE, task);
                     }
 
+                    // SCOPE
+                    else if (INNER_SCOPE.scope_block_for == BinaryCode.PLAIN_SCOPE) {
+                        INNER_SCOPE.scope_block_for = null;
+                        await this.runtime_actions.insertToScope(SCOPE, code_block);
+                    }
+
 
                     // ITERATION
                     else if (INNER_SCOPE.scope_block_for == BinaryCode.ITERATION) {
@@ -11614,14 +11992,14 @@ export class Runtime {
                     else if (INNER_SCOPE.scope_block_for == BinaryCode.FUNCTION) {
                         INNER_SCOPE.scope_block_for = null;
                         
-                        if (!(SCOPE.inner_scope.active_value instanceof Datex.Record || SCOPE.inner_scope.active_value === VOID)) {
+                        if (!(SCOPE.inner_scope.active_value instanceof Datex.Tuple || SCOPE.inner_scope.active_value === VOID)) {
                             console.log(SCOPE.inner_scope.active_value);
-                            throw new RuntimeError("Invalid function declaration: parameters must be empty or of type <Record>")
+                            throw new RuntimeError("Invalid function declaration: parameters must be empty or of type <Tuple>")
                         }
-                        const args = INNER_SCOPE.active_value ?? new Datex.Record();
+                        const args = INNER_SCOPE.active_value ?? new Datex.Tuple();
                         delete INNER_SCOPE.active_value;
 
-                        await this.runtime_actions.insertToScope(SCOPE, new Function(code_block, args, undefined, undefined, SCOPE.context));
+                        await this.runtime_actions.insertToScope(SCOPE, new Function(code_block, null, undefined, args, undefined, undefined, SCOPE.context));
                     }
 
                     // REMOTE
@@ -11738,6 +12116,13 @@ export class Runtime {
                 // TRANSFORM
                 case BinaryCode.TRANSFORM: {
                     SCOPE.inner_scope.scope_block_for = BinaryCode.TRANSFORM;
+                    SCOPE.inner_scope.scope_block_vars = [];
+                    break;
+                }
+
+                // SCOPE
+                case BinaryCode.PLAIN_SCOPE: {
+                    SCOPE.inner_scope.scope_block_for = BinaryCode.PLAIN_SCOPE;
                     SCOPE.inner_scope.scope_block_vars = [];
                     break;
                 }
@@ -11920,23 +12305,23 @@ export class Runtime {
                     break;
                 }
 
-                // RECORD_START
-                case BinaryCode.RECORD_START: {
-                    /** wait for buffer */
-                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
-                    /********************/
-                    // empty object
-                    if (SCOPE.buffer_views.uint8[SCOPE.current_index] === BinaryCode.RECORD_END) {
-                        SCOPE.current_index++;
-                        await this.runtime_actions.insertToScope(SCOPE, DatexObject.seal(new Record()));
-                    }
-                    else {
-                        this.runtime_actions.enterSubScope(SCOPE); // outer object scope
-                        SCOPE.inner_scope.active_object = new Record(); // generate new record
-                        SCOPE.inner_scope.active_object_new = true;
-                    }
-                    break;
-                }
+                // // RECORD_START
+                // case BinaryCode.RECORD_START: {
+                //     /** wait for buffer */
+                //     if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                //     /********************/
+                //     // empty object
+                //     if (SCOPE.buffer_views.uint8[SCOPE.current_index] === BinaryCode.RECORD_END) {
+                //         SCOPE.current_index++;
+                //         await this.runtime_actions.insertToScope(SCOPE, DatexObject.seal(new Record()));
+                //     }
+                //     else {
+                //         this.runtime_actions.enterSubScope(SCOPE); // outer object scope
+                //         SCOPE.inner_scope.active_object = new Record(); // generate new record
+                //         SCOPE.inner_scope.active_object_new = true;
+                //     }
+                //     break;
+                // }
 
                 // list element with key
                 case BinaryCode.ELEMENT_WITH_KEY: {
@@ -11965,6 +12350,46 @@ export class Runtime {
                     break;
                 }
 
+                case BinaryCode.ELEMENT_WITH_INT_KEY: {
+                    /** wait for buffer */
+                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                    /********************/
+
+                    let key = BigInt(SCOPE.buffer_views.data_view.getUint32(SCOPE.current_index));
+                    SCOPE.current_index += Uint32Array.BYTES_PER_ELEMENT;
+
+                    const key_perm = SCOPE.inner_scope.key_perm;
+             
+                    // insert previous value
+                    if (!SCOPE.inner_scope.active_object_new) await this.runtime_actions.insertToScope(SCOPE, await this.runtime_actions.exitSubScope(SCOPE), true);
+                    SCOPE.inner_scope.active_object_new = false;
+
+                    // add key for next value
+                    SCOPE.inner_scope.waiting_key = key;       
+                    // add key permission
+                    if (key_perm) SCOPE.inner_scope.key_perm = key_perm;
+
+                    this.runtime_actions.enterSubScope(SCOPE);    
+
+                 
+                    break;
+                }
+
+                // list element with dynamic key
+                case BinaryCode.ELEMENT_WITH_DYNAMIC_KEY: {
+                    /** wait for buffer */
+                    if (SCOPE.current_index+1 > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                    /********************/
+
+                    // insert previous value
+                    if (!SCOPE.inner_scope.active_object_new) await this.runtime_actions.insertToScope(SCOPE, await this.runtime_actions.exitSubScope(SCOPE), true);
+                    SCOPE.inner_scope.active_object_new = false;
+
+                    // wait for dynamic key
+                    SCOPE.inner_scope.wait_dynamic_key = true;
+                    break;
+                }
+
                 // key permission
                 case BinaryCode.KEY_PERMISSION: {
                     SCOPE.inner_scope.waiting_for_key_perm = true;
@@ -11990,8 +12415,7 @@ export class Runtime {
                 // ARRAY_END, OBJECT_END, TUPLE_END, RECORD_END
                 case BinaryCode.ARRAY_END:
                 case BinaryCode.OBJECT_END:
-                case BinaryCode.TUPLE_END:
-                case BinaryCode.RECORD_END: {
+                case BinaryCode.TUPLE_END: {
 
                     // now handle object content
                     let result = await this.runtime_actions.exitSubScope(SCOPE);
@@ -12005,7 +12429,7 @@ export class Runtime {
                     // modifiy final object/array
                     if (new_object instanceof Array) Runtime.runtime_actions.trimArray(new_object);
                     // seal record/tuple
-                    if (new_object instanceof Tuple || new_object instanceof Record) DatexObject.seal(new_object);
+                    if (new_object instanceof Tuple) DatexObject.seal(new_object);
 
                     // insert
                     await this.runtime_actions.insertToScope(SCOPE, new_object);
@@ -12028,7 +12452,6 @@ export class Runtime {
                 case BinaryCode.STD_TYPE_SET:
                 case BinaryCode.STD_TYPE_MAP:
                 case BinaryCode.STD_TYPE_TUPLE:
-                case BinaryCode.STD_TYPE_RECORD:
                 case BinaryCode.STD_TYPE_STREAM:
                 case BinaryCode.STD_TYPE_ANY:
                 case BinaryCode.STD_TYPE_ASSERTION:
@@ -12299,24 +12722,34 @@ export class Runtime {
                     if (SCOPE.current_index+Pointer.MAX_POINTER_ID_SIZE > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
                     /********************/
 
-                    let id = SCOPE.buffer_views.uint8.slice(SCOPE.current_index, SCOPE.current_index+=Pointer.MAX_POINTER_ID_SIZE);
-
-                    if (!SCOPE.impersonation_permission) {
-                        throw new PermissionError("No permission to create pointers on this endpoint", SCOPE)
-                    }
-
-                    let pointer = Pointer.create(id, <any>NOT_EXISTING, false, SCOPE.origin); // create new pointer with origin=SCOPE.origin
+                    const id = SCOPE.buffer_views.uint8.slice(SCOPE.current_index, SCOPE.current_index+=Pointer.MAX_POINTER_ID_SIZE);
+                    const pointer = await Pointer.load(id, SCOPE)
 
                     if (!SCOPE.inner_scope.waiting_ptrs) SCOPE.inner_scope.waiting_ptrs = new Set();
                     SCOPE.inner_scope.waiting_ptrs.add([pointer]); // assign next value to pointer;
+
+                    // /** wait for buffer */
+                    // if (SCOPE.current_index+Pointer.MAX_POINTER_ID_SIZE > SCOPE.buffer_views.uint8.byteLength) return Runtime.runtime_actions.waitForBuffer(SCOPE);
+                    // /********************/
+
+                    // let id = SCOPE.buffer_views.uint8.slice(SCOPE.current_index, SCOPE.current_index+=Pointer.MAX_POINTER_ID_SIZE);
+
+                    // if (!SCOPE.impersonation_permission) {
+                    //     throw new PermissionError("No permission to create pointers on this endpoint", SCOPE)
+                    // }
+
+                    // let pointer = Pointer.create(id, <any>NOT_EXISTING, false, SCOPE.origin); // create new pointer with origin=SCOPE.origin
+
+                    // if (!SCOPE.inner_scope.waiting_ptrs) SCOPE.inner_scope.waiting_ptrs = new Set();
+                    // SCOPE.inner_scope.waiting_ptrs.add([pointer]); // assign next value to pointer;
                     break;
                 }
 
-                // DELETE_POINTER
-                case BinaryCode.DELETE_POINTER: {
-                    SCOPE.inner_scope.delete_pointer = true;
-                    break;
-                }
+                // // DELETE_POINTER TODO remove?
+                // case BinaryCode.DELETE_POINTER: {
+                //     SCOPE.inner_scope.delete_pointer = true;
+                //     break;
+                // }
 
                 // SYNC
                 case BinaryCode.SYNC: {
@@ -12627,6 +13060,20 @@ Type.std.Set.setJSInterface({
     values: (parent:Set<any>) => [...parent],
 })
 
+// override set prototype to make sure all sets are sorted at runtime when calling [...set] (TODO is that good?)
+// const set_iterator = Set.prototype[Symbol.iterator];
+// Set.prototype[Symbol.iterator] = function() {
+//     const ordered = [...set_iterator.call(this)].sort();
+//     let i = 0;
+//     return <IterableIterator<any>>{
+//       next: () => ({
+//         done: i >= ordered.length,
+//         value: ordered[i++]
+//       })
+//     }
+// }
+
+
 
 // <image/*>
 if (globalThis.HTMLImageElement) Type.get("std:image").setJSInterface({
@@ -12828,6 +13275,53 @@ globalThis.$$ = $$;
 globalThis.static_pointer = static_pointer;
 
 
+// create a infinitely persistant value stored in the DATEX Storage
+let PERSISTENT_INDEX = 0;
+
+export function eternal<T>(type:Datex.Type<T>):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(id:string|number, type:Datex.Type<T>):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(value_class:any_class<T>):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(id:string|number, value_class:any_class<T>):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(create?:()=>Promise<T>|T):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(id:string|number, create:()=>Promise<T>|T):Promise<Datex.Storage.created_state_value<T>>
+export function eternal<T>(id_or_create_or_class:string|number|((()=>Promise<T>|T)|any_class<T>|Datex.Type<T>), _create_or_class?:(()=>Promise<T>|T)|any_class<T>|Datex.Type<T>) {
+    const create_or_class = (id_or_create_or_class instanceof Function || id_or_create_or_class instanceof Datex.Type) ? id_or_create_or_class : _create_or_class;
+
+    // create unique id for eternal call (file location + type)
+    const unique = ()=>{
+        const type = create_or_class instanceof Datex.Type ? create_or_class : (create_or_class.prototype !== undefined ? Datex.Type.getClassDatexType(create_or_class) : null);
+        const stackInfo = new Error().stack.toString().split(/\r\n|\n/)[3]?.replace(/ *at/,'').trim(); // line 3: after Error header, unique() call, eternal() call
+        return (stackInfo??'*') + ':' + (type ? type.toString() : '*') + ':' + (PERSISTENT_INDEX++)
+    }
+    const id = (typeof id_or_create_or_class == "string" || typeof id_or_create_or_class == "number") ? id_or_create_or_class : unique();
+ 
+    let creator:()=>Promise<T>|T;
+    // is class
+    if (typeof create_or_class === "function" && create_or_class.prototype !== undefined) {
+        // primitive
+        if (create_or_class == String || create_or_class == Number || create_or_class == Boolean)
+            creator = ()=><T><unknown>create_or_class();
+        // BigInt(0);
+        else if (create_or_class == BigInt)
+            creator = ()=><T><unknown>create_or_class(0);
+        // normal
+        else
+            creator = ()=>new (<(new (...args: any[]) => T)>create_or_class)();
+    }
+    // creator function
+    else if (typeof create_or_class === "function") {
+        creator = <(()=>Promise<T>|T)> create_or_class;
+    }
+    // DATEX type
+    else if (create_or_class instanceof Datex.Type) {
+        creator = () => create_or_class.createDefaultValue();
+    }
+
+    if (creator == null) throw new Datex.Error("Undefined creator for eternal creation")
+
+    return Datex.Storage.loadOrCreate(id, creator);
+}
+globalThis.eternal = eternal;
 
 
 export function not(value:[Datex.endpoint_name]|Datex.endpoint_name) {

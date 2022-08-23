@@ -1,9 +1,15 @@
 import Logger from "./logger.js";
 let logger = new Logger("datex compiler");
 import { Datex, ReadableStream, arrayBufferToBase64, DatexRuntimePerformance } from "./datex_runtime.js";
+import { DatexCompilerV2 } from "./datex_compiler_v2.js";
 export var BinaryCode;
 (function (BinaryCode) {
     BinaryCode[BinaryCode["END"] = 0] = "END";
+    BinaryCode[BinaryCode["CLOSE_AND_STORE"] = 1] = "CLOSE_AND_STORE";
+    BinaryCode[BinaryCode["SUBSCOPE_START"] = 2] = "SUBSCOPE_START";
+    BinaryCode[BinaryCode["SUBSCOPE_END"] = 3] = "SUBSCOPE_END";
+    BinaryCode[BinaryCode["CACHE_POINT"] = 4] = "CACHE_POINT";
+    BinaryCode[BinaryCode["CACHE_RESET"] = 5] = "CACHE_RESET";
     BinaryCode[BinaryCode["STD_TYPE_STRING"] = 16] = "STD_TYPE_STRING";
     BinaryCode[BinaryCode["STD_TYPE_INT"] = 17] = "STD_TYPE_INT";
     BinaryCode[BinaryCode["STD_TYPE_FLOAT"] = 18] = "STD_TYPE_FLOAT";
@@ -19,94 +25,114 @@ export var BinaryCode;
     BinaryCode[BinaryCode["STD_TYPE_SET"] = 28] = "STD_TYPE_SET";
     BinaryCode[BinaryCode["STD_TYPE_MAP"] = 29] = "STD_TYPE_MAP";
     BinaryCode[BinaryCode["STD_TYPE_TUPLE"] = 30] = "STD_TYPE_TUPLE";
-    BinaryCode[BinaryCode["STD_TYPE_RECORD"] = 31] = "STD_TYPE_RECORD";
-    BinaryCode[BinaryCode["STD_TYPE_FUNCTION"] = 32] = "STD_TYPE_FUNCTION";
-    BinaryCode[BinaryCode["STD_TYPE_STREAM"] = 33] = "STD_TYPE_STREAM";
-    BinaryCode[BinaryCode["STD_TYPE_ANY"] = 34] = "STD_TYPE_ANY";
-    BinaryCode[BinaryCode["STD_TYPE_ASSERTION"] = 35] = "STD_TYPE_ASSERTION";
-    BinaryCode[BinaryCode["STD_TYPE_TASK"] = 36] = "STD_TYPE_TASK";
-    BinaryCode[BinaryCode["STD_TYPE_ITERATOR"] = 37] = "STD_TYPE_ITERATOR";
+    BinaryCode[BinaryCode["STD_TYPE_FUNCTION"] = 31] = "STD_TYPE_FUNCTION";
+    BinaryCode[BinaryCode["STD_TYPE_STREAM"] = 32] = "STD_TYPE_STREAM";
+    BinaryCode[BinaryCode["STD_TYPE_ANY"] = 33] = "STD_TYPE_ANY";
+    BinaryCode[BinaryCode["STD_TYPE_ASSERTION"] = 34] = "STD_TYPE_ASSERTION";
+    BinaryCode[BinaryCode["STD_TYPE_TASK"] = 35] = "STD_TYPE_TASK";
+    BinaryCode[BinaryCode["STD_TYPE_ITERATOR"] = 36] = "STD_TYPE_ITERATOR";
     BinaryCode[BinaryCode["VAR_RESULT"] = 48] = "VAR_RESULT";
     BinaryCode[BinaryCode["SET_VAR_RESULT"] = 49] = "SET_VAR_RESULT";
-    BinaryCode[BinaryCode["VAR_RESULT_ACTION"] = 50] = "VAR_RESULT_ACTION";
-    BinaryCode[BinaryCode["VAR_SUB_RESULT"] = 51] = "VAR_SUB_RESULT";
-    BinaryCode[BinaryCode["SET_VAR_SUB_RESULT"] = 52] = "SET_VAR_SUB_RESULT";
-    BinaryCode[BinaryCode["VAR_SUB_RESULT_ACTION"] = 53] = "VAR_SUB_RESULT_ACTION";
-    BinaryCode[BinaryCode["VAR_ROOT"] = 54] = "VAR_ROOT";
-    BinaryCode[BinaryCode["SET_VAR_ROOT"] = 55] = "SET_VAR_ROOT";
-    BinaryCode[BinaryCode["VAR_ROOT_ACTION"] = 56] = "VAR_ROOT_ACTION";
-    BinaryCode[BinaryCode["VAR_ORIGIN"] = 57] = "VAR_ORIGIN";
-    BinaryCode[BinaryCode["SET_VAR_ORIGIN"] = 58] = "SET_VAR_ORIGIN";
-    BinaryCode[BinaryCode["VAR_ORIGIN_ACTION"] = 59] = "VAR_ORIGIN_ACTION";
-    BinaryCode[BinaryCode["VAR_SENDER"] = 60] = "VAR_SENDER";
-    BinaryCode[BinaryCode["VAR_CURRENT"] = 61] = "VAR_CURRENT";
-    BinaryCode[BinaryCode["VAR_ENCRYPTED"] = 62] = "VAR_ENCRYPTED";
-    BinaryCode[BinaryCode["VAR_SIGNED"] = 63] = "VAR_SIGNED";
-    BinaryCode[BinaryCode["VAR_TIMESTAMP"] = 64] = "VAR_TIMESTAMP";
-    BinaryCode[BinaryCode["VAR_META"] = 65] = "VAR_META";
-    BinaryCode[BinaryCode["VAR_STATIC"] = 66] = "VAR_STATIC";
-    BinaryCode[BinaryCode["VAR_THIS"] = 67] = "VAR_THIS";
-    BinaryCode[BinaryCode["VAR_IT"] = 71] = "VAR_IT";
-    BinaryCode[BinaryCode["SET_VAR_IT"] = 72] = "SET_VAR_IT";
-    BinaryCode[BinaryCode["VAR_IT_ACTION"] = 73] = "VAR_IT_ACTION";
-    BinaryCode[BinaryCode["VAR_ITER"] = 74] = "VAR_ITER";
-    BinaryCode[BinaryCode["SET_VAR_ITER"] = 75] = "SET_VAR_ITER";
-    BinaryCode[BinaryCode["VAR_ITER_ACTION"] = 76] = "VAR_ITER_ACTION";
+    BinaryCode[BinaryCode["SET_VAR_RESULT_REFERENCE"] = 50] = "SET_VAR_RESULT_REFERENCE";
+    BinaryCode[BinaryCode["VAR_RESULT_ACTION"] = 51] = "VAR_RESULT_ACTION";
+    BinaryCode[BinaryCode["VAR_SUB_RESULT"] = 52] = "VAR_SUB_RESULT";
+    BinaryCode[BinaryCode["SET_VAR_SUB_RESULT"] = 53] = "SET_VAR_SUB_RESULT";
+    BinaryCode[BinaryCode["SET_VAR_SUB_RESULT_REFERENCE"] = 54] = "SET_VAR_SUB_RESULT_REFERENCE";
+    BinaryCode[BinaryCode["VAR_SUB_RESULT_ACTION"] = 55] = "VAR_SUB_RESULT_ACTION";
+    BinaryCode[BinaryCode["VAR_ROOT"] = 56] = "VAR_ROOT";
+    BinaryCode[BinaryCode["SET_VAR_ROOT"] = 57] = "SET_VAR_ROOT";
+    BinaryCode[BinaryCode["SET_VAR_ROOT_REFERENCE"] = 58] = "SET_VAR_ROOT_REFERENCE";
+    BinaryCode[BinaryCode["VAR_ROOT_ACTION"] = 59] = "VAR_ROOT_ACTION";
+    BinaryCode[BinaryCode["VAR_ORIGIN"] = 60] = "VAR_ORIGIN";
+    BinaryCode[BinaryCode["SET_VAR_ORIGIN"] = 61] = "SET_VAR_ORIGIN";
+    BinaryCode[BinaryCode["SET_VAR_ORIGIN_REFERENCE"] = 62] = "SET_VAR_ORIGIN_REFERENCE";
+    BinaryCode[BinaryCode["VAR_ORIGIN_ACTION"] = 63] = "VAR_ORIGIN_ACTION";
+    BinaryCode[BinaryCode["VAR_IT"] = 64] = "VAR_IT";
+    BinaryCode[BinaryCode["SET_VAR_IT"] = 65] = "SET_VAR_IT";
+    BinaryCode[BinaryCode["SET_VAR_IT_REFERENCE"] = 66] = "SET_VAR_IT_REFERENCE";
+    BinaryCode[BinaryCode["VAR_IT_ACTION"] = 67] = "VAR_IT_ACTION";
     BinaryCode[BinaryCode["VAR_REMOTE"] = 68] = "VAR_REMOTE";
-    BinaryCode[BinaryCode["SET_VAR_REMOTE"] = 69] = "SET_VAR_REMOTE";
-    BinaryCode[BinaryCode["VAR_REMOTE_ACTION"] = 70] = "VAR_REMOTE_ACTION";
-    BinaryCode[BinaryCode["CACHE_POINT"] = 80] = "CACHE_POINT";
-    BinaryCode[BinaryCode["CACHE_RESET"] = 81] = "CACHE_RESET";
-    BinaryCode[BinaryCode["URL"] = 82] = "URL";
-    BinaryCode[BinaryCode["REQUEST"] = 88] = "REQUEST";
-    BinaryCode[BinaryCode["TEMPLATE"] = 83] = "TEMPLATE";
-    BinaryCode[BinaryCode["EXTENDS"] = 84] = "EXTENDS";
-    BinaryCode[BinaryCode["IMPLEMENTS"] = 85] = "IMPLEMENTS";
-    BinaryCode[BinaryCode["MATCHES"] = 86] = "MATCHES";
-    BinaryCode[BinaryCode["DEBUG"] = 87] = "DEBUG";
-    BinaryCode[BinaryCode["CLOSE_AND_STORE"] = 160] = "CLOSE_AND_STORE";
-    BinaryCode[BinaryCode["SUBSCOPE_START"] = 161] = "SUBSCOPE_START";
-    BinaryCode[BinaryCode["SUBSCOPE_END"] = 162] = "SUBSCOPE_END";
-    BinaryCode[BinaryCode["RETURN"] = 164] = "RETURN";
-    BinaryCode[BinaryCode["JMP"] = 165] = "JMP";
-    BinaryCode[BinaryCode["JTR"] = 166] = "JTR";
-    BinaryCode[BinaryCode["JFA"] = 102] = "JFA";
-    BinaryCode[BinaryCode["EQUAL_VALUE"] = 167] = "EQUAL_VALUE";
-    BinaryCode[BinaryCode["NOT_EQUAL_VALUE"] = 168] = "NOT_EQUAL_VALUE";
-    BinaryCode[BinaryCode["EQUAL"] = 163] = "EQUAL";
-    BinaryCode[BinaryCode["NOT_EQUAL"] = 223] = "NOT_EQUAL";
-    BinaryCode[BinaryCode["GREATER"] = 169] = "GREATER";
-    BinaryCode[BinaryCode["LESS"] = 170] = "LESS";
-    BinaryCode[BinaryCode["GREATER_EQUAL"] = 171] = "GREATER_EQUAL";
-    BinaryCode[BinaryCode["LESS_EQUAL"] = 172] = "LESS_EQUAL";
-    BinaryCode[BinaryCode["COUNT"] = 173] = "COUNT";
-    BinaryCode[BinaryCode["ABOUT"] = 174] = "ABOUT";
-    BinaryCode[BinaryCode["WILDCARD"] = 175] = "WILDCARD";
-    BinaryCode[BinaryCode["VAR"] = 176] = "VAR";
-    BinaryCode[BinaryCode["SET_VAR"] = 177] = "SET_VAR";
-    BinaryCode[BinaryCode["VAR_ACTION"] = 178] = "VAR_ACTION";
-    BinaryCode[BinaryCode["INTERNAL_VAR"] = 179] = "INTERNAL_VAR";
-    BinaryCode[BinaryCode["SET_INTERNAL_VAR"] = 180] = "SET_INTERNAL_VAR";
-    BinaryCode[BinaryCode["INTERNAL_VAR_ACTION"] = 181] = "INTERNAL_VAR_ACTION";
-    BinaryCode[BinaryCode["POINTER"] = 182] = "POINTER";
-    BinaryCode[BinaryCode["SET_POINTER"] = 183] = "SET_POINTER";
-    BinaryCode[BinaryCode["POINTER_ACTION"] = 184] = "POINTER_ACTION";
-    BinaryCode[BinaryCode["CREATE_POINTER"] = 185] = "CREATE_POINTER";
-    BinaryCode[BinaryCode["DELETE_POINTER"] = 186] = "DELETE_POINTER";
-    BinaryCode[BinaryCode["SUBSCRIBE"] = 187] = "SUBSCRIBE";
-    BinaryCode[BinaryCode["UNSUBSCRIBE"] = 188] = "UNSUBSCRIBE";
-    BinaryCode[BinaryCode["VALUE"] = 189] = "VALUE";
-    BinaryCode[BinaryCode["ORIGIN"] = 190] = "ORIGIN";
-    BinaryCode[BinaryCode["SUBSCRIBERS"] = 191] = "SUBSCRIBERS";
-    BinaryCode[BinaryCode["TRANSFORM"] = 103] = "TRANSFORM";
-    BinaryCode[BinaryCode["OBSERVE"] = 104] = "OBSERVE";
-    BinaryCode[BinaryCode["DO"] = 105] = "DO";
-    BinaryCode[BinaryCode["AWAIT"] = 112] = "AWAIT";
-    BinaryCode[BinaryCode["HOLD"] = 113] = "HOLD";
-    BinaryCode[BinaryCode["FUNCTION"] = 114] = "FUNCTION";
-    BinaryCode[BinaryCode["ASSERT"] = 89] = "ASSERT";
-    BinaryCode[BinaryCode["ITERATOR"] = 90] = "ITERATOR";
-    BinaryCode[BinaryCode["ITERATION"] = 91] = "ITERATION";
+    BinaryCode[BinaryCode["VAR_REMOTE_ACTION"] = 69] = "VAR_REMOTE_ACTION";
+    BinaryCode[BinaryCode["VAR_SENDER"] = 70] = "VAR_SENDER";
+    BinaryCode[BinaryCode["VAR_CURRENT"] = 71] = "VAR_CURRENT";
+    BinaryCode[BinaryCode["VAR_ENCRYPTED"] = 72] = "VAR_ENCRYPTED";
+    BinaryCode[BinaryCode["VAR_SIGNED"] = 73] = "VAR_SIGNED";
+    BinaryCode[BinaryCode["VAR_TIMESTAMP"] = 74] = "VAR_TIMESTAMP";
+    BinaryCode[BinaryCode["VAR_META"] = 75] = "VAR_META";
+    BinaryCode[BinaryCode["VAR_STATIC"] = 76] = "VAR_STATIC";
+    BinaryCode[BinaryCode["VAR_THIS"] = 77] = "VAR_THIS";
+    BinaryCode[BinaryCode["RETURN"] = 80] = "RETURN";
+    BinaryCode[BinaryCode["TEMPLATE"] = 81] = "TEMPLATE";
+    BinaryCode[BinaryCode["EXTENDS"] = 82] = "EXTENDS";
+    BinaryCode[BinaryCode["IMPLEMENTS"] = 83] = "IMPLEMENTS";
+    BinaryCode[BinaryCode["MATCHES"] = 84] = "MATCHES";
+    BinaryCode[BinaryCode["DEBUG"] = 85] = "DEBUG";
+    BinaryCode[BinaryCode["JMP"] = 86] = "JMP";
+    BinaryCode[BinaryCode["JTR"] = 87] = "JTR";
+    BinaryCode[BinaryCode["JFA"] = 88] = "JFA";
+    BinaryCode[BinaryCode["COUNT"] = 89] = "COUNT";
+    BinaryCode[BinaryCode["ABOUT"] = 90] = "ABOUT";
+    BinaryCode[BinaryCode["DELETE_POINTER"] = 91] = "DELETE_POINTER";
+    BinaryCode[BinaryCode["SUBSCRIBE"] = 92] = "SUBSCRIBE";
+    BinaryCode[BinaryCode["UNSUBSCRIBE"] = 93] = "UNSUBSCRIBE";
+    BinaryCode[BinaryCode["VALUE"] = 94] = "VALUE";
+    BinaryCode[BinaryCode["ORIGIN"] = 95] = "ORIGIN";
+    BinaryCode[BinaryCode["SUBSCRIBERS"] = 96] = "SUBSCRIBERS";
+    BinaryCode[BinaryCode["PLAIN_SCOPE"] = 97] = "PLAIN_SCOPE";
+    BinaryCode[BinaryCode["TRANSFORM"] = 98] = "TRANSFORM";
+    BinaryCode[BinaryCode["OBSERVE"] = 99] = "OBSERVE";
+    BinaryCode[BinaryCode["DO"] = 100] = "DO";
+    BinaryCode[BinaryCode["AWAIT"] = 101] = "AWAIT";
+    BinaryCode[BinaryCode["HOLD"] = 102] = "HOLD";
+    BinaryCode[BinaryCode["FUNCTION"] = 103] = "FUNCTION";
+    BinaryCode[BinaryCode["ASSERT"] = 104] = "ASSERT";
+    BinaryCode[BinaryCode["ITERATOR"] = 105] = "ITERATOR";
+    BinaryCode[BinaryCode["ITERATION"] = 106] = "ITERATION";
+    BinaryCode[BinaryCode["FREEZE"] = 107] = "FREEZE";
+    BinaryCode[BinaryCode["SEAL"] = 108] = "SEAL";
+    BinaryCode[BinaryCode["HAS"] = 109] = "HAS";
+    BinaryCode[BinaryCode["KEYS"] = 110] = "KEYS";
+    BinaryCode[BinaryCode["GET_TYPE"] = 111] = "GET_TYPE";
+    BinaryCode[BinaryCode["REQUEST"] = 112] = "REQUEST";
+    BinaryCode[BinaryCode["RANGE"] = 113] = "RANGE";
+    BinaryCode[BinaryCode["EQUAL_VALUE"] = 128] = "EQUAL_VALUE";
+    BinaryCode[BinaryCode["NOT_EQUAL_VALUE"] = 129] = "NOT_EQUAL_VALUE";
+    BinaryCode[BinaryCode["EQUAL"] = 130] = "EQUAL";
+    BinaryCode[BinaryCode["NOT_EQUAL"] = 131] = "NOT_EQUAL";
+    BinaryCode[BinaryCode["GREATER"] = 132] = "GREATER";
+    BinaryCode[BinaryCode["LESS"] = 133] = "LESS";
+    BinaryCode[BinaryCode["GREATER_EQUAL"] = 134] = "GREATER_EQUAL";
+    BinaryCode[BinaryCode["LESS_EQUAL"] = 135] = "LESS_EQUAL";
+    BinaryCode[BinaryCode["AND"] = 144] = "AND";
+    BinaryCode[BinaryCode["OR"] = 145] = "OR";
+    BinaryCode[BinaryCode["ADD"] = 146] = "ADD";
+    BinaryCode[BinaryCode["SUBTRACT"] = 147] = "SUBTRACT";
+    BinaryCode[BinaryCode["MULTIPLY"] = 148] = "MULTIPLY";
+    BinaryCode[BinaryCode["DIVIDE"] = 149] = "DIVIDE";
+    BinaryCode[BinaryCode["NOT"] = 150] = "NOT";
+    BinaryCode[BinaryCode["VAR"] = 160] = "VAR";
+    BinaryCode[BinaryCode["SET_VAR"] = 161] = "SET_VAR";
+    BinaryCode[BinaryCode["SET_VAR_REFERENCE"] = 162] = "SET_VAR_REFERENCE";
+    BinaryCode[BinaryCode["VAR_ACTION"] = 163] = "VAR_ACTION";
+    BinaryCode[BinaryCode["INTERNAL_VAR"] = 164] = "INTERNAL_VAR";
+    BinaryCode[BinaryCode["SET_INTERNAL_VAR"] = 165] = "SET_INTERNAL_VAR";
+    BinaryCode[BinaryCode["SET_INTERNAL_VAR_REFERENCE"] = 166] = "SET_INTERNAL_VAR_REFERENCE";
+    BinaryCode[BinaryCode["INTERNAL_VAR_ACTION"] = 167] = "INTERNAL_VAR_ACTION";
+    BinaryCode[BinaryCode["LABEL"] = 168] = "LABEL";
+    BinaryCode[BinaryCode["SET_LABEL"] = 169] = "SET_LABEL";
+    BinaryCode[BinaryCode["INIT_LABEL"] = 170] = "INIT_LABEL";
+    BinaryCode[BinaryCode["LABEL_ACTION"] = 171] = "LABEL_ACTION";
+    BinaryCode[BinaryCode["POINTER"] = 172] = "POINTER";
+    BinaryCode[BinaryCode["SET_POINTER"] = 173] = "SET_POINTER";
+    BinaryCode[BinaryCode["INIT_POINTER"] = 174] = "INIT_POINTER";
+    BinaryCode[BinaryCode["POINTER_ACTION"] = 175] = "POINTER_ACTION";
+    BinaryCode[BinaryCode["CREATE_POINTER"] = 176] = "CREATE_POINTER";
+    BinaryCode[BinaryCode["CHILD_GET"] = 177] = "CHILD_GET";
+    BinaryCode[BinaryCode["CHILD_SET"] = 178] = "CHILD_SET";
+    BinaryCode[BinaryCode["CHILD_SET_REFERENCE"] = 179] = "CHILD_SET_REFERENCE";
+    BinaryCode[BinaryCode["CHILD_ACTION"] = 180] = "CHILD_ACTION";
+    BinaryCode[BinaryCode["CHILD_GET_REF"] = 181] = "CHILD_GET_REF";
+    BinaryCode[BinaryCode["WILDCARD"] = 182] = "WILDCARD";
     BinaryCode[BinaryCode["STRING"] = 192] = "STRING";
     BinaryCode[BinaryCode["INT_8"] = 193] = "INT_8";
     BinaryCode[BinaryCode["INT_16"] = 194] = "INT_16";
@@ -122,67 +148,49 @@ export var BinaryCode;
     BinaryCode[BinaryCode["UNIT"] = 204] = "UNIT";
     BinaryCode[BinaryCode["FLOAT_AS_INT"] = 205] = "FLOAT_AS_INT";
     BinaryCode[BinaryCode["SHORT_STRING"] = 206] = "SHORT_STRING";
-    BinaryCode[BinaryCode["PERSON_ALIAS"] = 208] = "PERSON_ALIAS";
-    BinaryCode[BinaryCode["PERSON_ALIAS_WILDCARD"] = 209] = "PERSON_ALIAS_WILDCARD";
-    BinaryCode[BinaryCode["INSTITUTION_ALIAS"] = 210] = "INSTITUTION_ALIAS";
-    BinaryCode[BinaryCode["INSTITUTION_ALIAS_WILDCARD"] = 211] = "INSTITUTION_ALIAS_WILDCARD";
-    BinaryCode[BinaryCode["BOT"] = 212] = "BOT";
-    BinaryCode[BinaryCode["BOT_WILDCARD"] = 213] = "BOT_WILDCARD";
-    BinaryCode[BinaryCode["LABEL"] = 218] = "LABEL";
-    BinaryCode[BinaryCode["SET_LABEL"] = 219] = "SET_LABEL";
-    BinaryCode[BinaryCode["LABEL_ACTION"] = 220] = "LABEL_ACTION";
-    BinaryCode[BinaryCode["ENDPOINT"] = 214] = "ENDPOINT";
-    BinaryCode[BinaryCode["ENDPOINT_WILDCARD"] = 215] = "ENDPOINT_WILDCARD";
-    BinaryCode[BinaryCode["FILTER"] = 222] = "FILTER";
-    BinaryCode[BinaryCode["SYNC"] = 216] = "SYNC";
-    BinaryCode[BinaryCode["STOP_SYNC"] = 217] = "STOP_SYNC";
-    BinaryCode[BinaryCode["FREEZE"] = 96] = "FREEZE";
-    BinaryCode[BinaryCode["SEAL"] = 97] = "SEAL";
-    BinaryCode[BinaryCode["HAS"] = 98] = "HAS";
-    BinaryCode[BinaryCode["KEYS"] = 99] = "KEYS";
+    BinaryCode[BinaryCode["PERSON_ALIAS"] = 207] = "PERSON_ALIAS";
+    BinaryCode[BinaryCode["PERSON_ALIAS_WILDCARD"] = 208] = "PERSON_ALIAS_WILDCARD";
+    BinaryCode[BinaryCode["INSTITUTION_ALIAS"] = 209] = "INSTITUTION_ALIAS";
+    BinaryCode[BinaryCode["INSTITUTION_ALIAS_WILDCARD"] = 210] = "INSTITUTION_ALIAS_WILDCARD";
+    BinaryCode[BinaryCode["BOT"] = 211] = "BOT";
+    BinaryCode[BinaryCode["BOT_WILDCARD"] = 212] = "BOT_WILDCARD";
+    BinaryCode[BinaryCode["ENDPOINT"] = 213] = "ENDPOINT";
+    BinaryCode[BinaryCode["ENDPOINT_WILDCARD"] = 214] = "ENDPOINT_WILDCARD";
+    BinaryCode[BinaryCode["FILTER"] = 215] = "FILTER";
+    BinaryCode[BinaryCode["URL"] = 216] = "URL";
+    BinaryCode[BinaryCode["TYPE"] = 217] = "TYPE";
+    BinaryCode[BinaryCode["EXTENDED_TYPE"] = 218] = "EXTENDED_TYPE";
     BinaryCode[BinaryCode["ARRAY_START"] = 224] = "ARRAY_START";
     BinaryCode[BinaryCode["ARRAY_END"] = 225] = "ARRAY_END";
     BinaryCode[BinaryCode["OBJECT_START"] = 226] = "OBJECT_START";
     BinaryCode[BinaryCode["OBJECT_END"] = 227] = "OBJECT_END";
     BinaryCode[BinaryCode["TUPLE_START"] = 228] = "TUPLE_START";
     BinaryCode[BinaryCode["TUPLE_END"] = 229] = "TUPLE_END";
-    BinaryCode[BinaryCode["RECORD_START"] = 230] = "RECORD_START";
-    BinaryCode[BinaryCode["RECORD_END"] = 231] = "RECORD_END";
-    BinaryCode[BinaryCode["ELEMENT_WITH_KEY"] = 232] = "ELEMENT_WITH_KEY";
-    BinaryCode[BinaryCode["KEY_PERMISSION"] = 247] = "KEY_PERMISSION";
-    BinaryCode[BinaryCode["ELEMENT"] = 233] = "ELEMENT";
-    BinaryCode[BinaryCode["AND"] = 234] = "AND";
-    BinaryCode[BinaryCode["OR"] = 235] = "OR";
-    BinaryCode[BinaryCode["NOT"] = 236] = "NOT";
-    BinaryCode[BinaryCode["STREAM"] = 237] = "STREAM";
-    BinaryCode[BinaryCode["STOP_STREAM"] = 221] = "STOP_STREAM";
-    BinaryCode[BinaryCode["CHILD_GET"] = 240] = "CHILD_GET";
-    BinaryCode[BinaryCode["CHILD_GET_REF"] = 239] = "CHILD_GET_REF";
-    BinaryCode[BinaryCode["CHILD_SET"] = 241] = "CHILD_SET";
-    BinaryCode[BinaryCode["CHILD_ACTION"] = 242] = "CHILD_ACTION";
-    BinaryCode[BinaryCode["THROW_ERROR"] = 244] = "THROW_ERROR";
-    BinaryCode[BinaryCode["GET_TYPE"] = 245] = "GET_TYPE";
+    BinaryCode[BinaryCode["ELEMENT_WITH_KEY"] = 230] = "ELEMENT_WITH_KEY";
+    BinaryCode[BinaryCode["ELEMENT_WITH_INT_KEY"] = 231] = "ELEMENT_WITH_INT_KEY";
+    BinaryCode[BinaryCode["ELEMENT_WITH_DYNAMIC_KEY"] = 232] = "ELEMENT_WITH_DYNAMIC_KEY";
+    BinaryCode[BinaryCode["KEY_PERMISSION"] = 233] = "KEY_PERMISSION";
+    BinaryCode[BinaryCode["ELEMENT"] = 234] = "ELEMENT";
+    BinaryCode[BinaryCode["SYNC"] = 240] = "SYNC";
+    BinaryCode[BinaryCode["STOP_SYNC"] = 241] = "STOP_SYNC";
+    BinaryCode[BinaryCode["STREAM"] = 242] = "STREAM";
+    BinaryCode[BinaryCode["STOP_STREAM"] = 243] = "STOP_STREAM";
+    BinaryCode[BinaryCode["EXTEND"] = 244] = "EXTEND";
+    BinaryCode[BinaryCode["THROW_ERROR"] = 245] = "THROW_ERROR";
     BinaryCode[BinaryCode["REMOTE"] = 246] = "REMOTE";
-    BinaryCode[BinaryCode["ADD"] = 248] = "ADD";
-    BinaryCode[BinaryCode["SUBTRACT"] = 250] = "SUBTRACT";
-    BinaryCode[BinaryCode["MULTIPLY"] = 251] = "MULTIPLY";
-    BinaryCode[BinaryCode["DIVIDE"] = 252] = "DIVIDE";
-    BinaryCode[BinaryCode["RANGE"] = 253] = "RANGE";
-    BinaryCode[BinaryCode["EXTEND"] = 254] = "EXTEND";
-    BinaryCode[BinaryCode["TYPE"] = 255] = "TYPE";
-    BinaryCode[BinaryCode["EXTENDED_TYPE"] = 238] = "EXTENDED_TYPE";
 })(BinaryCode || (BinaryCode = {}));
 var ACTION_TYPE;
 (function (ACTION_TYPE) {
     ACTION_TYPE[ACTION_TYPE["GET"] = 0] = "GET";
     ACTION_TYPE[ACTION_TYPE["SET"] = 1] = "SET";
-    ACTION_TYPE[ACTION_TYPE["OTHER"] = 2] = "OTHER";
+    ACTION_TYPE[ACTION_TYPE["SET_REFERENCE_OR_INIT"] = 2] = "SET_REFERENCE_OR_INIT";
+    ACTION_TYPE[ACTION_TYPE["OTHER"] = 3] = "OTHER";
 })(ACTION_TYPE || (ACTION_TYPE = {}));
 export const Regex = {
     CLOSE_AND_STORE: /^(;\s*)+/,
-    VARIABLE: /^(\\)?()([A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*)(\s*[+-/*$&|]?=(?![=>/]))?/,
-    INTERNAL_VAR: /^()(#)([A-Za-z0-9À-ž_]+)(\s*[+-/*$&|]?=(?![=>/]))?/,
-    LABELED_POINTER: /^(\\)?(\$)([A-Za-z0-9À-ž_]{1,25})(\s*[+-/*$&|]?=(?![=>/]))?/,
+    VARIABLE: /^(\\)?()([A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*)(\s*[:+-/*&|$]?=(?![=>/]))?/,
+    INTERNAL_VAR: /^()(#)([A-Za-z0-9À-ž_]+)(\s*[:+-/*&|$]?=(?![=>/]))?/,
+    LABELED_POINTER: /^(\\)?(\$)([A-Za-z0-9À-ž_]{1,25})(\s*[:+-/*&|]?=(?![=>/]))?/,
     HEX_VARIABLE: /^[A-Fa-f0-9_]*$/,
     JUMP: /^(jmp|jtr|jfa) +([A-Za-z_]\w*)?/,
     JUMP_LBL: /^lbl *([A-Za-z_]\w*)?/,
@@ -190,6 +198,7 @@ export const Regex = {
     URL: /^[a-zA-Z0-9_]+:\/\/[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/,
     SUBSCOPE_START: /^\(/,
     SUBSCOPE_END: /^\)/,
+    DYNAMIC_KEY_END: /^\) *:/,
     SYNC: /^\<\=\=/,
     STOP_SYNC: /^\<\/\=/,
     ADD: /^\+/,
@@ -197,7 +206,7 @@ export const Regex = {
     MULTIPLY: /^\*/,
     DIVIDE: /^\//,
     ASSIGN_SET: /^\=/,
-    ASSIGN_POINTER_VALUE: /^\$\=/,
+    ASSIGN_REFERENCE: /^\$\=/,
     ASSIGN_ADD: /^\+\=/,
     ASSIGN_MUTIPLY: /^\*\=/,
     ASSIGN_DIVIDE: /^\/\=/,
@@ -237,7 +246,7 @@ export const Regex = {
     BOT: /^\*\+?[A-Za-zÀ-ž_][A-Za-z0-9À-ž-_]{0,17}(\/(\*|[A-Za-z0-9À-ž-_]{1,8}))?/,
     ANY_INSTITUTION: /^\+\+/,
     _ANY_FILTER_TARGET: /^\@\+?[A-Za-z0-9À-ž-_]{1,32}(\:[A-Za-z0-9À-ž-_]{1,32})*(\/(\*|[A-Za-z0-9À-ž-_]{1,8}))?|\@\@[A-Fa-f0-9_-]{2,53}(\/(\*|[A-Za-z0-9À-ž-_]{1,8}))?$/,
-    KEY: /^[A-Za-z0-9À-ž_]+?\s*:(?!:)/,
+    KEY: /^[A-Za-z0-9À-ž_-]+?\s*:(?!:)/,
     PROPERTY: /^[A-Za-zÀ-ž_][A-Za-z0-9À-ž_]*/,
     EMPTY_ARRAY: /^\[\s*]/,
     EMPTY_OBJECT: /^\{\s*}/,
@@ -269,6 +278,7 @@ export const Regex = {
     IMPLEMENTS: /^implements\b/,
     MATCHES: /^matches\b/,
     DEBUG: /^debug\b/,
+    SCOPE: /^scope\b\s*(\()?/,
     OBSERVE: /^observe\b/,
     TRANSFORM: /^transform\b\s*(\()?/,
     HOLD: /^hold\b\s*(\()?/,
@@ -297,7 +307,7 @@ export const Regex = {
     FUN: /^fun\b/,
     TYPE: /^<(?:(\w+?):)?([A-Za-z0-9À-ž_+-]+?)(\/[A-Za-z0-9À-ž_+-]*)*?(>|\()/,
     STRING_PROPERTY: /^\s*([A-Za-z_][A-Za-z0-9À-ž_]*)/,
-    POINTER: /^\$((?:[A-Fa-f0-9]{2}|[xX]([A-Fa-f0-9])){1,26})(\s*[+-/*$&|]?=(?![=>/]))?/,
+    POINTER: /^\$((?:[A-Fa-f0-9]{2}|[xX][A-Fa-f0-9]){1,26})(\s*[:+-/*&|]?=(?![=>/]))?/,
     CREATE_POINTER: /^\$\$/,
     STREAM: /^\<\</,
     STOP_STREAM: /^\<\//,
@@ -321,11 +331,11 @@ export var DatexProtocolDataType;
     DatexProtocolDataType[DatexProtocolDataType["DATA"] = 2] = "DATA";
     DatexProtocolDataType[DatexProtocolDataType["BC_TRNSCT"] = 3] = "BC_TRNSCT";
     DatexProtocolDataType[DatexProtocolDataType["LOCAL_REQ"] = 4] = "LOCAL_REQ";
-    DatexProtocolDataType[DatexProtocolDataType["HELLO"] = 6] = "HELLO";
+    DatexProtocolDataType[DatexProtocolDataType["HELLO"] = 5] = "HELLO";
 })(DatexProtocolDataType || (DatexProtocolDataType = {}));
 globalThis.DatexProtocolDataType = DatexProtocolDataType;
 export const DatexProtocolDataTypesMap = [
-    "REQUEST", "RESPONSE", "DATA", "BC_TRNSCT", "LOCAL_REQ", "-", "HELLO"
+    "REQUEST", "RESPONSE", "DATA", "BC_TRNSCT", "LOCAL_REQ", "HELLO"
 ];
 const utf8_decoder = new TextDecoder();
 export class DatexCompiler {
@@ -793,6 +803,10 @@ export class DatexCompiler {
                 assign_string = assign_string.replace(/ /g, '');
                 if (assign_string == "=")
                     action_type = ACTION_TYPE.SET;
+                else if (assign_string == "$=")
+                    action_type = ACTION_TYPE.SET_REFERENCE_OR_INIT;
+                else if (assign_string == ":=")
+                    action_type = ACTION_TYPE.SET_REFERENCE_OR_INIT;
                 else if (assign_string == "+=") {
                     action_type = ACTION_TYPE.OTHER;
                     action_specifier = BinaryCode.ADD;
@@ -816,10 +830,6 @@ export class DatexCompiler {
                 else if (assign_string == "|=") {
                     action_type = ACTION_TYPE.OTHER;
                     action_specifier = BinaryCode.OR;
-                }
-                else if (assign_string == "$=") {
-                    action_type = ACTION_TYPE.OTHER;
-                    action_specifier = BinaryCode.CREATE_POINTER;
                 }
             }
             return [action_type, action_specifier];
@@ -1086,12 +1096,20 @@ export class DatexCompiler {
             SCOPE.b_index += compiled.byteLength;
         },
         addKey: (k, SCOPE) => {
-            let key_bin = DatexCompiler.utf8_encoder.encode(k);
-            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + key_bin.byteLength + 1, SCOPE);
-            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_KEY;
-            SCOPE.uint8[SCOPE.b_index++] = key_bin.byteLength;
-            SCOPE.uint8.set(key_bin, SCOPE.b_index);
-            SCOPE.b_index += key_bin.byteLength;
+            if (typeof k == "string") {
+                let key_bin = DatexCompiler.utf8_encoder.encode(k);
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + key_bin.byteLength + 1, SCOPE);
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_KEY;
+                SCOPE.uint8[SCOPE.b_index++] = key_bin.byteLength;
+                SCOPE.uint8.set(key_bin, SCOPE.b_index);
+                SCOPE.b_index += key_bin.byteLength;
+            }
+            else {
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + Uint32Array.BYTES_PER_ELEMENT + 1, SCOPE);
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_INT_KEY;
+                SCOPE.data_view.setUint32(SCOPE.b_index, Number(k));
+                SCOPE.b_index += Uint32Array.BYTES_PER_ELEMENT;
+            }
         },
         addNull: (SCOPE) => {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
@@ -1175,15 +1193,7 @@ export class DatexCompiler {
             else if (el instanceof Datex.Addresses.IdEndpoint)
                 DatexCompiler.builder.addIdEndpointByIdAndChannel(el.binary, el.subspaces, el.instance, el.appspace, SCOPE);
         },
-        addTypeByNamespaceAndNameWithParams: async (SCOPE, namespace, name, variation, parameters) => {
-            DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, namespace, name, variation, !!parameters);
-            if (parameters instanceof Datex.Tuple) {
-                DatexCompiler.builder.addArray(parameters, SCOPE);
-            }
-            else if (parameters)
-                throw new Datex.CompilerError("Invalid type parameters");
-        },
-        addTypeByNamespaceAndName: (SCOPE, namespace, name, variation, parameters = false) => {
+        addTypeByNamespaceAndName: (SCOPE, namespace, name, variation, parameters) => {
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
             const is_extended_type = !!(variation || parameters);
@@ -1270,6 +1280,9 @@ export class DatexCompiler {
                 SCOPE.uint8.set(variation_bin, SCOPE.b_index);
                 SCOPE.b_index += variation_bin.byteLength;
             }
+            if (parameters instanceof Array) {
+                DatexCompiler.builder.addTuple(new Datex.Tuple(parameters), SCOPE);
+            }
         },
         addPointerBodyByID: (id, SCOPE) => {
             let id_bin = id instanceof Uint8Array ? id : Datex.Pointer.hex2buffer(id, Datex.Pointer.MAX_POINTER_ID_SIZE, true);
@@ -1323,26 +1336,43 @@ export class DatexCompiler {
             if (is_root && unassigned_children.length)
                 DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index);
         },
+        addTuple: (o, SCOPE, is_root = true, parents = new Set(), unassigned_children = [], start_index = [0]) => {
+            let entries = o.entries();
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
+            DatexCompiler.builder.valueIndex(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.TUPLE_START;
+            let parent_var;
+            for (let [key, val] of o.entries()) {
+                if (o[Datex.INHERITED_PROPERTIES]?.has(key))
+                    continue;
+                if (SCOPE.inserted_values.has(val) && parents.has(val)) {
+                    parent_var = parent_var ?? DatexCompiler.builder.createInternalVariableAtIndex(start_index, SCOPE, o);
+                    let value_index = SCOPE.inserted_values.get(val);
+                    let existing_val_var = val == o ? parent_var : DatexCompiler.builder.createInternalVariableAtIndex(value_index, SCOPE, val);
+                    unassigned_children.push([parent_var, key, existing_val_var]);
+                }
+                else {
+                    if (typeof key == "number" || typeof key == "bigint")
+                        SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;
+                    else
+                        DatexCompiler.builder.addKey(key, SCOPE);
+                    DatexCompiler.builder.insert(val, SCOPE, false, new Set(parents), unassigned_children);
+                }
+            }
+            DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1, SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.TUPLE_END;
+            if (is_root && unassigned_children.length)
+                DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index);
+        },
         addObject: (o, SCOPE, is_root = true, parents = new Set(), unassigned_children = [], start_index = [0]) => {
             let entries = Object.entries(o);
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
             DatexCompiler.builder.valueIndex(SCOPE);
-            SCOPE.uint8[SCOPE.b_index++] = o instanceof Datex.Record ? BinaryCode.RECORD_START : BinaryCode.OBJECT_START;
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.OBJECT_START;
             let parent_var;
-            let ext_props;
-            if (o[Datex.EXTENDED_OBJECTS]) {
-                if (o[Datex.INHERITED_PROPERTIES])
-                    ext_props = o[Datex.INHERITED_PROPERTIES];
-                for (let ext of o[Datex.EXTENDED_OBJECTS] || []) {
-                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1, SCOPE);
-                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT;
-                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.EXTEND;
-                    DatexCompiler.builder.insert(ext, SCOPE, false, new Set(parents), unassigned_children);
-                }
-            }
             for (let i = 0; i < entries.length; i++) {
                 let [key, val] = entries[i];
-                if (ext_props?.has(key))
+                if (o[Datex.INHERITED_PROPERTIES]?.has(key))
                     continue;
                 if (SCOPE.inserted_values.has(val) && parents.has(val)) {
                     parent_var = parent_var ?? DatexCompiler.builder.createInternalVariableAtIndex(start_index, SCOPE, o);
@@ -1356,7 +1386,7 @@ export class DatexCompiler {
                 }
             }
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1, SCOPE);
-            SCOPE.uint8[SCOPE.b_index++] = o instanceof Datex.Record ? BinaryCode.RECORD_END : BinaryCode.OBJECT_END;
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.OBJECT_END;
             if (is_root && unassigned_children.length)
                 DatexCompiler.builder.addChildrenAssignments(unassigned_children, SCOPE, start_index);
         },
@@ -1388,11 +1418,11 @@ export class DatexCompiler {
         detect_record: (SCOPE) => {
             if (SCOPE.inner_scope.parent_type == undefined || SCOPE.inner_scope.parent_type == BinaryCode.SUBSCOPE_START) {
                 if (SCOPE.inner_scope.parent_type == BinaryCode.SUBSCOPE_START && !SCOPE.inner_scope.has_ce) {
-                    DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START);
+                    DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.TUPLE_START);
                 }
                 else {
-                    DatexCompiler.builder.enter_subscope(SCOPE, BinaryCode.RECORD_START);
-                    SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
+                    DatexCompiler.builder.enter_subscope(SCOPE, BinaryCode.TUPLE_START);
+                    SCOPE.inner_scope.auto_close_scope = BinaryCode.TUPLE_END;
                 }
             }
         },
@@ -1435,8 +1465,6 @@ export class DatexCompiler {
             }
             if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START && type == BinaryCode.SUBSCOPE_END)
                 type = BinaryCode.TUPLE_END;
-            if (SCOPE.inner_scope.parent_type == BinaryCode.RECORD_START && type == BinaryCode.SUBSCOPE_END)
-                type = BinaryCode.RECORD_END;
             if (SCOPE.inner_scope.parent_type == BinaryCode.OBJECT_START && type != BinaryCode.OBJECT_END)
                 throw new Datex.SyntaxError("Missing closing object bracket");
             if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START && type != BinaryCode.ARRAY_END)
@@ -1521,14 +1549,14 @@ export class DatexCompiler {
             let type;
             let original_value = value;
             if (value instanceof Function && !(value instanceof Datex.Function))
-                value = Datex.Pointer.proxifyValue(new Datex.Function(value, null, SCOPE.options.to));
+                value = Datex.Pointer.proxifyValue(new Datex.Function(null, value));
             if (value instanceof Error && !(value instanceof Datex.Error)) {
                 value = new Datex.Error(value.message, [[Datex.Runtime.endpoint, "[native] " + value.name]]);
             }
             if (value instanceof Datex.SerializedValue) {
                 [type, value] = value.getSerialized();
-                if (type?.is_complex && type != Datex.Type.std.Function)
-                    DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, type.namespace, type.name, type.variation, type.parameters);
+                if (type?.is_complex && type != Datex.Type.std.Scope)
+                    DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, type.namespace, type.name, type.variation, type.parameters);
             }
             else {
                 value = Datex.Pointer.pointerifyValue(value);
@@ -1544,8 +1572,8 @@ export class DatexCompiler {
                     type = Datex.Type.getValueDatexType(value);
                     if (!type)
                         throw new Datex.ValueError("Cannot get type for value " + value);
-                    if (type?.is_complex && type != Datex.Type.std.Function) {
-                        DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, type.namespace, type.name, type.variation, type.parameters);
+                    if (type?.is_complex && type != Datex.Type.std.Scope) {
+                        DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, type.namespace, type.name, type.variation, type.parameters);
                         value = DatexCompiler.builder.serializeValue(value, SCOPE);
                     }
                     else if (type?.serializable_not_complex) {
@@ -1556,31 +1584,30 @@ export class DatexCompiler {
                 }
             }
             if (value instanceof Datex.Unit)
-                return DatexCompiler.builder.addUnit(value, SCOPE);
-            if (value === Datex.VOID)
-                return DatexCompiler.builder.addVoid(SCOPE);
-            if (value === null)
-                return DatexCompiler.builder.addNull(SCOPE);
-            if (typeof value == 'bigint')
-                return DatexCompiler.builder.addInt(value, SCOPE);
-            if (typeof value == 'number')
-                return DatexCompiler.builder.addFloat(value, SCOPE);
-            if (typeof value == "string")
-                return DatexCompiler.builder.addString(value, SCOPE);
-            if (typeof value == "boolean")
-                return DatexCompiler.builder.addBoolean(value, SCOPE);
-            if (value instanceof URL)
-                return DatexCompiler.builder.addUrl(value.href, SCOPE);
-            if (value instanceof Datex.PointerProperty) {
+                DatexCompiler.builder.addUnit(value, SCOPE);
+            else if (value === Datex.VOID)
+                DatexCompiler.builder.addVoid(SCOPE);
+            else if (value === null)
+                DatexCompiler.builder.addNull(SCOPE);
+            else if (typeof value == 'bigint')
+                DatexCompiler.builder.addInt(value, SCOPE);
+            else if (typeof value == 'number')
+                DatexCompiler.builder.addFloat(value, SCOPE);
+            else if (typeof value == "string")
+                DatexCompiler.builder.addString(value, SCOPE);
+            else if (typeof value == "boolean")
+                DatexCompiler.builder.addBoolean(value, SCOPE);
+            else if (value instanceof URL)
+                DatexCompiler.builder.addUrl(value.href, SCOPE);
+            else if (value instanceof Datex.PointerProperty) {
                 DatexCompiler.builder.addPointer(value.pointer, SCOPE);
                 let _SCOPE = (SCOPE.insert_parent_scope_vars_default >= 2) ? SCOPE.extract_var_scope : SCOPE;
                 DatexCompiler.builder.handleRequiredBufferSize(_SCOPE.b_index, _SCOPE);
                 _SCOPE.inner_scope.path_info_index = _SCOPE.b_index++;
                 _SCOPE.uint8[_SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_GET_REF;
                 DatexCompiler.builder.insert(value.key, _SCOPE);
-                return;
             }
-            if (value instanceof Datex.Pointer) {
+            else if (value instanceof Datex.Pointer) {
                 if (SCOPE.inner_scope.path_info_index == -1) {
                     let m;
                     let action_type = ACTION_TYPE.GET;
@@ -1620,7 +1647,7 @@ export class DatexCompiler {
                         action_type = ACTION_TYPE.OTHER;
                         action_specifier = BinaryCode.OR;
                     }
-                    else if (m = SCOPE.datex?.match(Regex.ASSIGN_POINTER_VALUE)) {
+                    else if (m = SCOPE.datex?.match(Regex.ASSIGN_REFERENCE)) {
                         SCOPE.datex = SCOPE.datex.substring(m[0].length);
                         action_type = ACTION_TYPE.OTHER;
                         action_specifier = BinaryCode.CREATE_POINTER;
@@ -1629,65 +1656,69 @@ export class DatexCompiler {
                         if (SCOPE.options.inserted_ptrs)
                             SCOPE.options.inserted_ptrs.add(value);
                     }
-                    return DatexCompiler.builder.addPointer(value, SCOPE, action_type, action_specifier);
+                    DatexCompiler.builder.addPointer(value, SCOPE, action_type, action_specifier);
                 }
                 else {
                     if (SCOPE.options.inserted_ptrs)
                         SCOPE.options.inserted_ptrs.add(value);
-                    return DatexCompiler.builder.addPointer(value, SCOPE);
+                    DatexCompiler.builder.addPointer(value, SCOPE);
                 }
             }
-            if (value instanceof Datex.Addresses.WildcardTarget)
-                return DatexCompiler.builder.addFilterTarget(value.target, SCOPE);
-            if (value instanceof Datex.Addresses.Endpoint)
-                return DatexCompiler.builder.addFilterTarget(value, SCOPE);
-            if (value instanceof Datex.Addresses.Filter)
-                return DatexCompiler.builder.addFilter(value, SCOPE);
-            if (value instanceof Datex.Type) {
-                DatexCompiler.builder.addTypeByNamespaceAndNameWithParams(SCOPE, value.namespace, value.name, value.variation, value.parameters);
-                if (value.parameters)
-                    DatexCompiler.builder.insert(value.parameters, SCOPE);
-                return;
+            else if (value instanceof Datex.Addresses.WildcardTarget)
+                DatexCompiler.builder.addFilterTarget(value.target, SCOPE);
+            else if (value instanceof Datex.Addresses.Endpoint)
+                DatexCompiler.builder.addFilterTarget(value, SCOPE);
+            else if (value instanceof Datex.Addresses.Filter)
+                DatexCompiler.builder.addFilter(value, SCOPE);
+            else if (value instanceof Datex.Type) {
+                DatexCompiler.builder.addTypeByNamespaceAndName(SCOPE, value.namespace, value.name, value.variation, value.parameters);
             }
-            if (value instanceof Uint8Array)
-                return DatexCompiler.builder.addBuffer(value, SCOPE);
-            if (value instanceof ArrayBuffer)
-                return DatexCompiler.builder.addBuffer(new Uint8Array(value), SCOPE);
-            if (value instanceof Datex.Function) {
-                DatexCompiler.builder.insert(value.params, SCOPE);
-                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index, SCOPE);
-                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.FUNCTION;
-                for (let variable of value.datex?.internal_vars ?? []) {
-                    DatexCompiler.builder.insert(variable, SCOPE);
-                }
-                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1 + Uint32Array.BYTES_PER_ELEMENT + (value.datex?.compiled?.byteLength ?? 0), SCOPE);
+            else if (value instanceof Uint8Array)
+                DatexCompiler.builder.addBuffer(value, SCOPE);
+            else if (value instanceof ArrayBuffer)
+                DatexCompiler.builder.addBuffer(new Uint8Array(value), SCOPE);
+            else if (value instanceof Datex.Scope) {
+                SCOPE.uint8[SCOPE.b_index++] = BinaryCode.PLAIN_SCOPE;
+                DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1 + Uint32Array.BYTES_PER_ELEMENT + (value.compiled?.byteLength ?? 0), SCOPE);
                 SCOPE.uint8[SCOPE.b_index++] = BinaryCode.SCOPE_BLOCK;
-                SCOPE.data_view.setUint32(SCOPE.b_index, value.datex?.compiled?.byteLength ?? 0, true);
+                SCOPE.data_view.setUint32(SCOPE.b_index, value.compiled?.byteLength ?? 0, true);
                 SCOPE.b_index += Uint32Array.BYTES_PER_ELEMENT;
-                if (value.datex?.compiled) {
-                    SCOPE.uint8.set(new Uint8Array(value.datex.compiled), SCOPE.b_index);
-                    SCOPE.b_index += value.datex.compiled.byteLength;
+                if (value.compiled) {
+                    SCOPE.uint8.set(new Uint8Array(value.compiled), SCOPE.b_index);
+                    SCOPE.b_index += value.compiled.byteLength;
                 }
-                return;
             }
-            if (value instanceof Array) {
+            else if (value instanceof Array) {
                 if (!parents)
                     parents = new Set();
                 parents.add(original_value);
-                return DatexCompiler.builder.addArray(value, SCOPE, is_root, parents, unassigned_children, start_index);
+                DatexCompiler.builder.addArray(value, SCOPE, is_root, parents, unassigned_children, start_index);
             }
-            if (typeof value == "object") {
+            else if (value instanceof Datex.Tuple) {
                 if (!parents)
                     parents = new Set();
                 parents.add(original_value);
-                return DatexCompiler.builder.addObject(value, SCOPE, is_root, parents, unassigned_children, start_index);
+                DatexCompiler.builder.addTuple(value, SCOPE, is_root, parents, unassigned_children, start_index);
             }
-            if (typeof value == "symbol") {
-                return DatexCompiler.builder.addVoid(SCOPE);
+            else if (typeof value == "object") {
+                if (!parents)
+                    parents = new Set();
+                parents.add(original_value);
+                DatexCompiler.builder.addObject(value, SCOPE, is_root, parents, unassigned_children, start_index);
+            }
+            else if (typeof value == "symbol") {
+                DatexCompiler.builder.addVoid(SCOPE);
             }
             else {
                 console.error("Unsupported native value", value);
                 throw new Datex.ValueError("Failed to compile an unsupported native type");
+            }
+            if (value?.[Datex.EXTENDED_OBJECTS]) {
+                for (let ext of value[Datex.EXTENDED_OBJECTS] || []) {
+                    DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1, SCOPE);
+                    SCOPE.uint8[SCOPE.b_index++] = BinaryCode.AND;
+                    DatexCompiler.builder.insert(ext, SCOPE, is_root, parents, unassigned_children);
+                }
             }
         }
     };
@@ -1725,19 +1756,14 @@ export class DatexCompiler {
             isEffectiveValue = true;
         }
         else if (m = SCOPE.datex.match(Regex.KEY)) {
-            if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START)
-                throw new Datex.SyntaxError("Invalid key in <Array>");
-            if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START)
-                DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START);
-            if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END)
-                SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
             let key = m[0].substring(0, m[0].length - 1).trim();
+            let int_key = Number.isInteger(Number(key)) ? Number(key) : null;
             const permission_prefix = DatexCompiler.builder.check_perm_prefix(SCOPE);
             if (!permission_prefix && SCOPE.inner_scope.first_element_pos != undefined)
                 SCOPE.b_index = SCOPE.inner_scope.first_element_pos;
             DatexCompiler.builder.detect_record(SCOPE);
-            DatexCompiler.builder.addKey(key, SCOPE);
+            DatexCompiler.builder.addKey(int_key ?? key, SCOPE);
             isEffectiveValue = true;
         }
         else if (m = SCOPE.datex.match(Regex.END)) {
@@ -2176,7 +2202,6 @@ export class DatexCompiler {
                     DatexCompiler.builder.insertByteAtIndex(BinaryCode.ELEMENT, SCOPE.inner_scope.start_index + 1, SCOPE);
                 }
                 else {
-                    console.log("comma", SCOPE.inner_scope.ce_index, SCOPE.inner_scope.first_value_index);
                     const index = Math.max(SCOPE.inner_scope.ce_index ?? 0, SCOPE.inner_scope.first_value_index);
                     if (index === -1)
                         throw new Datex.SyntaxError("Invalid leading comma");
@@ -2277,10 +2302,6 @@ export class DatexCompiler {
             if (m[2]) {
                 if (SCOPE.inner_scope.parent_type == BinaryCode.ARRAY_START)
                     throw new Datex.SyntaxError("Invalid key in <Array>");
-                if (SCOPE.inner_scope.parent_type == BinaryCode.TUPLE_START)
-                    DatexCompiler.builder.change_inner_scope_parent_type(SCOPE, BinaryCode.RECORD_START);
-                if (SCOPE.inner_scope.auto_close_scope == BinaryCode.TUPLE_END)
-                    SCOPE.inner_scope.auto_close_scope = BinaryCode.RECORD_END;
                 const permission_prefix = DatexCompiler.builder.check_perm_prefix(SCOPE);
                 if (!permission_prefix && SCOPE.inner_scope.first_element_pos != undefined)
                     SCOPE.b_index = SCOPE.inner_scope.first_element_pos;
@@ -2290,6 +2311,17 @@ export class DatexCompiler {
             else
                 DatexCompiler.builder.addString(string_or_key, SCOPE);
             isEffectiveValue = true;
+        }
+        else if (m = SCOPE.datex.match(Regex.DYNAMIC_KEY_END)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);
+            console.log('DYNAMIC_KEY_EMD');
+            DatexCompiler.builder.exit_subscope(SCOPE);
+            const current_b_index = SCOPE.b_index;
+            if (SCOPE.inner_scope.first_element_pos != undefined)
+                SCOPE.b_index = SCOPE.inner_scope.first_element_pos;
+            DatexCompiler.builder.detect_record(SCOPE);
+            SCOPE.uint8[SCOPE.b_index++] = BinaryCode.ELEMENT_WITH_DYNAMIC_KEY;
+            SCOPE.b_index = current_b_index;
         }
         else if (m = SCOPE.datex.match(Regex.SUBSCOPE_END)) {
             if (SCOPE._code_block_type == 2 && SCOPE.subscopes.length == 1) {
@@ -2404,6 +2436,10 @@ export class DatexCompiler {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
             console.log("constructor", m[0]);
         }
+        else if (m = SCOPE.datex.match(Regex.SCOPE)) {
+            SCOPE.datex = SCOPE.datex.substring(m[0].length);
+            await DatexCompiler.builder.addScopeBlock(BinaryCode.PLAIN_SCOPE, !!m[1], 0, SCOPE);
+        }
         else if (m = SCOPE.datex.match(Regex.OBSERVE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
             DatexCompiler.builder.handleRequiredBufferSize(SCOPE.b_index + 1, SCOPE);
@@ -2483,16 +2519,8 @@ export class DatexCompiler {
                     base_type = BinaryCode.VAR_ORIGIN;
                     v_name = undefined;
                 }
-                else if (v_name == "remote") {
-                    base_type = BinaryCode.VAR_REMOTE;
-                    v_name = undefined;
-                }
                 else if (v_name == "it") {
                     base_type = BinaryCode.VAR_IT;
-                    v_name = undefined;
-                }
-                else if (v_name == "iter") {
-                    base_type = BinaryCode.VAR_ITER;
                     v_name = undefined;
                 }
                 else if (v_name == "sender") {
@@ -2541,6 +2569,12 @@ export class DatexCompiler {
                     if (action_type != ACTION_TYPE.GET)
                         throw new Datex.CompilerError("Invalid action on internal variable #this");
                     base_type = BinaryCode.VAR_THIS;
+                    v_name = undefined;
+                }
+                else if (v_name == "remote") {
+                    if (action_type != ACTION_TYPE.GET)
+                        throw new Datex.CompilerError("Invalid action on internal variable #remote");
+                    base_type = BinaryCode.VAR_REMOTE;
                     v_name = undefined;
                 }
             }
@@ -2638,14 +2672,12 @@ export class DatexCompiler {
                 DatexCompiler.builder.insertByteAtIndex(BinaryCode.OR, SCOPE.inner_scope.path_info_index + 1, SCOPE);
             }
         }
-        else if (m = SCOPE.datex.match(Regex.ASSIGN_POINTER_VALUE)) {
+        else if (m = SCOPE.datex.match(Regex.ASSIGN_REFERENCE)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
             if (SCOPE.inner_scope.path_info_index == -1)
                 throw new Datex.CompilerError("Invalid assignment");
-            else {
-                SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_ACTION;
-                DatexCompiler.builder.insertByteAtIndex(BinaryCode.CREATE_POINTER, SCOPE.inner_scope.path_info_index + 1, SCOPE);
-            }
+            else
+                SCOPE.uint8[SCOPE.inner_scope.path_info_index] = BinaryCode.CHILD_SET_REFERENCE;
         }
         else if (m = SCOPE.datex.match(Regex.ADD)) {
             SCOPE.datex = SCOPE.datex.substring(m[0].length);
@@ -2929,11 +2961,11 @@ export class DatexCompiler {
         let blob = new Blob([dxb], { type: "text/dxb" });
         return URL.createObjectURL(blob);
     }
-    static encodeValue(value, inserted_ptrs, add_command_end = true, deep_collapse = false, collapse_first_inserted = false, no_create_pointers = false) {
-        return this.compileValue(value, { inserted_ptrs, collapse_pointers: deep_collapse, collapse_first_inserted: collapse_first_inserted, no_create_pointers: no_create_pointers }, add_command_end);
+    static encodeValue(value, inserted_ptrs, add_command_end = true, deep_clone = false, collapse_first_inserted = false, no_create_pointers = false) {
+        return this.compileValue(value, { inserted_ptrs, collapse_pointers: deep_clone, collapse_first_inserted: collapse_first_inserted, no_create_pointers: no_create_pointers }, add_command_end);
     }
-    static encodeValueBase64(value, inserted_ptrs, add_command_end = true, deep_collapse = false, collapse_first_inserted = false, no_create_pointers = false) {
-        return arrayBufferToBase64(this.encodeValue(value, inserted_ptrs, add_command_end, deep_collapse, collapse_first_inserted, no_create_pointers));
+    static encodeValueBase64(value, inserted_ptrs, add_command_end = true, deep_clone = false, collapse_first_inserted = false, no_create_pointers = false) {
+        return arrayBufferToBase64(this.encodeValue(value, inserted_ptrs, add_command_end, deep_clone, collapse_first_inserted, no_create_pointers));
     }
     static getValueHash(value) {
         return crypto.subtle.digest('SHA-256', DatexCompiler.encodeValue(value, undefined, true, true, true, true));
@@ -3048,7 +3080,7 @@ export class DatexCompiler {
         SCOPE.inner_scope = SCOPE.subscopes[0];
         SCOPE.uint8 = new Uint8Array(SCOPE.buffer);
         SCOPE.data_view = new DataView(SCOPE.buffer);
-        return DatexCompiler.compileLoop(SCOPE);
+        return SCOPE.options.__v2 ? DatexCompilerV2.compile(SCOPE.datex) : DatexCompiler.compileLoop(SCOPE);
     }
     static compileValue(value, options = {}, add_command_end = true) {
         const SCOPE = {

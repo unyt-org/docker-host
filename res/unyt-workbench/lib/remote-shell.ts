@@ -1,13 +1,11 @@
-import Logger from "../unyt_core/logger.js";
-import { sync, expose, scope, property, constructor } from "../unyt_core/legacy_decorators.js";
+import { Datex, props, sync, expose, scope, property, constructor } from "../unyt_core/datex.js";
 import {spawn, ChildProcess, exec} from 'child_process';
-import { Datex, props } from "../unyt_core/datex_runtime.js";
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { rejects } from "assert";
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const logger = new Logger("ssh relay");
+const logger = new Datex.Logger("ssh relay");
 
 
 @sync @scope('shell') export class RemoteShell {

@@ -1,8 +1,7 @@
-import { Datex } from "../unyt_core/datex_runtime.js";
-import { template, property } from "../unyt_core/legacy_decorators.js";
+import { Datex, template, property } from "../unyt_core/datex.js";
 
 @template('<unyt:endpoint-config>') export class EndpointConfig {
 	@property version: number
-	@property endpoint: Datex.Addresses.Endpoint
+	@property endpoint: Datex.Endpoint
 	@property('expose-database') ['expose-database']: boolean
 }

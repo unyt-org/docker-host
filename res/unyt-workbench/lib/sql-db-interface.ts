@@ -1,12 +1,10 @@
-import {scope, expose, sync, template, property, meta} from "../unyt_core/legacy_decorators.js";
+import {Datex,scope, expose, sync, template, property, meta} from "../unyt_core/datex.js";
 
 // @ts-ignore
 import mysql from 'mysql';
-import Logger from "../unyt_core/logger.js";
-import { Datex } from "../unyt_core/datex_runtime.js";
 // TODO extra db handler - docker
 
-const logger = new Logger("sql");
+const logger = new Datex.Logger("sql");
 
 export type tree_entry = {path:string, children?:tree_entry[], type?:string, linked?:string}
 
@@ -65,7 +63,7 @@ function customTypeCast(field, next) {
 // db handler version 2
 @scope("sql") export abstract class SQL {
 
-    private static active_connections = new WeakMap<Datex.Addresses.Endpoint, Map<string, SQLConnection>>();
+    private static active_connections = new WeakMap<Datex.Endpoint, Map<string, SQLConnection>>();
 
     private static connectionOptionsToString(connection_options:connection_options) {
         return connection_options.user + "@" + connection_options.host + ":" + connection_options.port + ":" + connection_options.database + "&" + connection_options.password;
@@ -112,6 +110,16 @@ function customTypeCast(field, next) {
     // public methods
     @property async query(query_string:string, query_params?:any[]): Promise<any> {
         if (!this.client) await this.connect();
+
+        // convert buffers to Node Buffers
+        for (let i=0;i<query_params?.length;i++) {
+            if (query_params[i] instanceof ArrayBuffer) query_params[i] = Buffer.from(query_params[i]);
+            else if (query_params[i] instanceof Array) {
+                for (let j=0;j<query_params[i]?.length;j++) {
+                    if (query_params[i][j] instanceof ArrayBuffer) query_params[i][j] = Buffer.from(query_params[i][j]);
+                }
+            }
+        }
 
         console.log("QUERY:", query_string, query_params);
         return new Promise((resolve, reject)=>{

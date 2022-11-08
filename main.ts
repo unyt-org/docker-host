@@ -1,13 +1,10 @@
 import { exec } from "child_process";
 import fs from "fs";
 import { EndpointConfig } from "./endpoint-config.js";
-import DatexCloud from "./unyt_core/datex_cloud.js";
-import { datex, Datex, eternal } from "./unyt_core/datex_runtime.js";
-import {constructor, expose, meta, property, replicator, root_extension, scope, sync} from "./unyt_core/legacy_decorators.js";
-import Logger from "./unyt_core/logger.js";
-const logger = new Logger("container manager");
+import { Datex, eternal, constructor, expose, meta, property, replicator,default_property, scope, sync } from "./unyt_core/datex.js";
+const logger = new Datex.Logger("container manager");
 
-await DatexCloud.connect();
+await Datex.Supranet.connect();
 
 
 enum ContainerStatus {
@@ -22,7 +19,7 @@ enum ContainerStatus {
 // parent class for all types of containers
 @sync class Container {
 
-	protected logger:Logger;
+	protected logger:Datex.Logger;
 	#initialized = false;
 
 	// docker container image + id
@@ -31,7 +28,7 @@ enum ContainerStatus {
 	@property name: string = "Container"
 	@property id: string = '0';
 
-	@property owner: Datex.Addresses.Endpoint
+	@property owner: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
 
 	uniqueID() {
@@ -41,14 +38,14 @@ enum ContainerStatus {
 		});
 	  }
 
-	constructor(owner: Datex.Addresses.Endpoint) {}
-	@constructor construct(owner: Datex.Addresses.Endpoint) {
+	constructor(owner: Datex.Endpoint) {}
+	@constructor construct(owner: Datex.Endpoint) {
 		this.owner = owner;
 		this.container_name = this.uniqueID();
-		this.logger = new Logger(this);
+		this.logger = new Datex.Logger(this);
 	}
 	@replicator replicate(){
-		this.logger = new Logger(this);
+		this.logger = new Datex.Logger(this);
 		this.#initialized = true;
 		this.updateAfterReplicate();
 	}
@@ -162,8 +159,8 @@ enum ContainerStatus {
 
 	@property config: EndpointConfig
 
-	constructor(owner: Datex.Addresses.Endpoint, config: EndpointConfig) {super(owner)}
-	@constructor constructWorkbenchContanier(owner: Datex.Addresses.Endpoint, config: EndpointConfig) {
+	constructor(owner: Datex.Endpoint, config: EndpointConfig) {super(owner)}
+	@constructor constructWorkbenchContanier(owner: Datex.Endpoint, config: EndpointConfig) {
 		this.construct(owner)
 		this.config = config;
 		this.name = "unyt Workbench"
@@ -210,7 +207,7 @@ enum ContainerStatus {
 		// wait some time TODO wait until endpoint calls
 		await new Promise<void>(resolve=>{setTimeout(()=>resolve(),6000)});
 		try {
-			await DatexCloud.pingEndpoint(this.config.endpoint);
+			await Datex.Supranet.pingEndpoint(this.config.endpoint);
 		}
 		catch (e) {
 			this.logger.error("Workbench Endpoint not reachable")
@@ -228,8 +225,8 @@ enum ContainerStatus {
 	@property version:string
 	@property url:string
 
-	constructor(owner: Datex.Addresses.Endpoint, url: string, version?:string) {super(owner)}
-	@constructor constructRemoteImageContainer(owner: Datex.Addresses.Endpoint, url: string, version?: string) {
+	constructor(owner: Datex.Endpoint, url: string, version?:string) {super(owner)}
+	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, version?: string) {
 		this.construct(owner)
 		this.version = version;
 		this.url = url;
@@ -267,7 +264,7 @@ enum ContainerStatus {
 
 
 
-@root_extension @scope class ContainerManager {
+@default_property @scope class ContainerManager {
 
 	@meta(0)
 	@expose static async getContainers(meta:Datex.datex_meta):Promise<Set<Container>>{
@@ -280,7 +277,7 @@ enum ContainerStatus {
 
 		// create config
 		const config = new EndpointConfig();
-		config.endpoint = Datex.Addresses.Endpoint.getNewEndpoint();
+		config.endpoint = Datex.Endpoint.getNewEndpoint();
 
 		// init and start WorkbenchContainer
 		const container = new WorkbenchContainer(meta.sender, config);
@@ -307,13 +304,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	private static addContainer(endpoint:Datex.Addresses.Endpoint, container:Container) {
+	private static addContainer(endpoint:Datex.Endpoint, container:Container) {
 		containers.getAuto(endpoint).add(container);
 	}
 
 }
 
-const containers = (await eternal(Map<Datex.Addresses.Endpoint, Set<Container>>)).setAutoDefault(Set);
+const containers = (await eternal(Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info("containers", containers)
 
 

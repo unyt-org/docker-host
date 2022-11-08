@@ -2,6 +2,6 @@
 
 {
 	version: 1,
-	endpoint: @@010E52616CFD208F2D837608,
+	endpoint: @@010E52616CFD208F2D837611,
 	'expose-database': true
 }

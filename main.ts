@@ -1,4 +1,4 @@
-import { exec } from "https://deno.land/x/exec/mod.ts";
+import { OutputMode, exec } from "https://deno.land/x/exec/mod.ts";
 
 
 import { EndpointConfig } from "./endpoint-config.ts";
@@ -110,6 +110,8 @@ enum ContainerStatus {
 			return false;
 		}
 
+		await sleep(2000);
+
 		// check if container is running
 		const running = await this.isRunning();
 		if (running) {
@@ -150,8 +152,14 @@ enum ContainerStatus {
 	}
 
 	private async isRunning(){
-		const ps = await execCommand(`docker ps | grep ${this.container_name}`);
-		return !!ps;
+		try {
+			const ps = await execCommand(`docker ps | grep ${this.container_name}`);
+			return !!ps;
+		}
+		catch (e) {
+			console.log("err:",e)
+			return false;
+		}
 	}
 }
 
@@ -274,32 +282,25 @@ enum ContainerStatus {
 		this.name = url;
 	}
 
-	// update docker image
-	@property async update(){
+	// custom workbench container init
+	override async handleInit(){
 		try {
-			this.image = `${this.gitURL}${this.version?':'+this.version:''}`;
-			await execCommand(`docker pull ${this.image}`);
+			this.image = `uix-app-${new Date().getTime()}`
+	
+			logger.info("image: " + this.image);
+			logger.info("repo: " + this.gitURL);
+			logger.info("branch: " + this.branch);
+			
+			// create docker container
+			await execCommand(`docker build --build-arg repo=${this.gitURL} -f ./res/uix-app-docker/Dockerfile -t ${this.image} .`)
 		}
 
 		catch (e) {
 			this.logger.error("Error initializing container",e);
 			return false;
 		}
-		return true;
-	}
 
-	// custom workbench container init
-	override async handleInit(){
-		if (!await this.update()) return false;
 		return super.handleInit();
-	}
-
-	// custom start
-	override async handleStart(){
-		// always pull image first
-		if (!await this.update()) return false;
-
-		return super.handleStart();
 	}
 }
 
@@ -338,7 +339,6 @@ enum ContainerStatus {
 
 		// link container to requesting endpoint
 		this.addContainer(sender, container);
-		console.log(containers);
 
 		return container;
 	}
@@ -354,7 +354,6 @@ enum ContainerStatus {
 
 		// link container to requesting endpoint
 		this.addContainer(sender, container);
-		console.log(containers);
 
 		return container;
 	}
@@ -369,9 +368,14 @@ const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpo
 logger.info("containers", containers)
 
 
-function execCommand(command:string) {
+async function execCommand(command:string) {
 	console.log("exec: " + command)
-	return exec(command);
+	const {status, output} = (await exec(command, {output: OutputMode.Capture}));
+	console.log(status, output)
+
+	if (!status.success) throw output;
+	else return output;
+
 	// return new Promise<string>((resolve, reject)=>{
 	// 	exec(command, (error, stdout, stderr)=> {
 	// 		if (error) reject(error);

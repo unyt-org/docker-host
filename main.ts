@@ -1,11 +1,11 @@
-import { exec } from "child_process";
-import fs from "fs";
-import { EndpointConfig } from "./endpoint-config.js";
-import { Datex, eternal, constructor, expose, meta, property, replicator,default_property, scope, sync } from "./unyt_core/datex.js";
+import { exec } from "https://deno.land/x/exec/mod.ts";
+
+
+import { EndpointConfig } from "./endpoint-config.ts";
+import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync } from "unyt_core";
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
-
 
 enum ContainerStatus {
 	STOPPED = 0,
@@ -19,21 +19,21 @@ enum ContainerStatus {
 // parent class for all types of containers
 @sync class Container {
 
-	protected logger:Datex.Logger;
+	protected logger!:Datex.Logger;
 	#initialized = false;
 
 	// docker container image + id
-	@property image: string
-	@property container_name: string = "Container"
-	@property name: string = "Container"
-	@property id: string = '0';
+	@property image!: string
+	@property container_name = "Container"
+	@property name = "Container"
+	@property id = '0';
 
-	@property owner: Datex.Endpoint
+	@property owner!: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
 
 	uniqueID() {
 		return 'xxxx-xxxx-xxxx-xxxx-xxxx'.replace(/[xy]/g, function(c) {
-			var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+			const r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
 			return v.toString(16);
 		});
 	  }
@@ -87,7 +87,7 @@ enum ContainerStatus {
 		return true;
 	}
 
-	protected async updateAfterReplicate(){
+	protected updateAfterReplicate(){
 		// continue start/stop if in inbetween state
 		if (this.status == ContainerStatus.STARTING) this.start();
 		else if (this.status == ContainerStatus.STOPPING) this.stop();
@@ -157,7 +157,7 @@ enum ContainerStatus {
 
 @sync class WorkbenchContainer extends Container {
 
-	@property config: EndpointConfig
+	@property config!: EndpointConfig
 
 	constructor(owner: Datex.Endpoint, config: EndpointConfig) {super(owner)}
 	@constructor constructWorkbenchContanier(owner: Datex.Endpoint, config: EndpointConfig) {
@@ -181,10 +181,8 @@ enum ContainerStatus {
 			// create new config directory to copy to docker
 			const tmp_dir = `res/config-files-${new Date().getTime()}`
 			await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
-			const writer = fs.createWriteStream(`${tmp_dir}/endpoint.dx`)
-			writer.write(config_exported);
-			writer.close();
-	
+			await Deno.writeTextFile(`${tmp_dir}/endpoint.dx`, config_exported)
+			
 			// create docker container
 			await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${this.image} .`)
 	
@@ -222,8 +220,8 @@ enum ContainerStatus {
 
 @sync class RemoteImageContainer extends Container {
 
-	@property version:string
-	@property url:string
+	@property version?:string
+	@property url!:string
 
 	constructor(owner: Datex.Endpoint, url: string, version?:string) {super(owner)}
 	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, version?: string) {
@@ -263,42 +261,99 @@ enum ContainerStatus {
 }
 
 
+@sync class UIXAppContainer extends Container {
+
+	@property branch?:string
+	@property gitURL!:string
+
+	constructor(owner: Datex.Endpoint, gitURL: string, branch?:string) {super(owner)}
+	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, branch?: string) {
+		this.construct(owner)
+		this.branch = branch;
+		this.gitURL = url;
+		this.name = url;
+	}
+
+	// update docker image
+	@property async update(){
+		try {
+			this.image = `${this.gitURL}${this.version?':'+this.version:''}`;
+			await execCommand(`docker pull ${this.image}`);
+		}
+
+		catch (e) {
+			this.logger.error("Error initializing container",e);
+			return false;
+		}
+		return true;
+	}
+
+	// custom workbench container init
+	override async handleInit(){
+		if (!await this.update()) return false;
+		return super.handleInit();
+	}
+
+	// custom start
+	override async handleStart(){
+		// always pull image first
+		if (!await this.update()) return false;
+
+		return super.handleStart();
+	}
+}
 
 @default_property @scope class ContainerManager {
 
-	@meta(0)
-	@expose static async getContainers(meta:Datex.datex_meta):Promise<Set<Container>>{
-		return containers.getAuto(meta.sender);
+	@expose static async getContainers():Promise<Set<Container>>{
+		return containers.getAuto(datex.meta!.sender);
 	}
 
-	@meta(0)
-	@expose static async createWorkbenchContainer(meta:Datex.datex_meta):Promise<WorkbenchContainer>{
-		logger.info("Creating new Workbench Container for " + meta.sender);
+	@expose static async createWorkbenchContainer():Promise<WorkbenchContainer>{
+		const sender = datex.meta!.sender;
+		logger.info("Creating new Workbench Container for " + sender);
 
 		// create config
 		const config = new EndpointConfig();
 		config.endpoint = Datex.Endpoint.getNewEndpoint();
 
 		// init and start WorkbenchContainer
-		const container = new WorkbenchContainer(meta.sender, config);
+		const container = new WorkbenchContainer(sender, config);
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(meta.sender, container);
+		this.addContainer(sender, container);
 
 		return container;
 	}
 
-	@meta(1)
-	@expose static async createRemoteImageContainer(url:string, meta:Datex.datex_meta):Promise<RemoteImageContainer>{
-		logger.info("Creating new Remote Image Container for " + meta.sender, url);
+	@expose static async createRemoteImageContainer(url:string):Promise<RemoteImageContainer>{
+		const sender = datex.meta!.sender;
+
+		logger.info("Creating new Remote Image Container for " + sender, url);
 
 		// init and start RemoteImageContainer
-		const container = new RemoteImageContainer(meta.sender, url);
+		const container = new RemoteImageContainer(sender, url);
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(meta.sender, container);
+		this.addContainer(sender, container);
+		console.log(containers);
+
+		return container;
+	}
+
+	@expose static async createUIXAppContainer(gitURL:string, branch: string):Promise<UIXAppContainer>{
+		const sender = datex.meta!.sender;
+
+		logger.info("Creating new UIX App Container for " + sender, gitURL, branch);
+
+		// init and start RemoteImageContainer
+		const container = new UIXAppContainer(sender, gitURL, branch);
+		container.start();
+
+		// link container to requesting endpoint
+		this.addContainer(sender, container);
 		console.log(containers);
 
 		return container;
@@ -310,16 +365,18 @@ enum ContainerStatus {
 
 }
 
-const containers = (await eternal(Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
+const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info("containers", containers)
 
 
 function execCommand(command:string) {
-	return new Promise<string>((resolve, reject)=>{
-		exec(command, (error, stdout, stderr)=> {
-			if (error) reject(error);
-			if (stderr) reject(stderr);
-			else resolve(stdout.replace(/\n$/, ''));
-		})
-	})
+	console.log("exec: " + command)
+	return exec(command);
+	// return new Promise<string>((resolve, reject)=>{
+	// 	exec(command, (error, stdout, stderr)=> {
+	// 		if (error) reject(error);
+	// 		if (stderr) reject(stderr);
+	// 		else resolve(stdout.replace(/\n$/, ''));
+	// 	})
+	// })
 }

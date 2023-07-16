@@ -2,7 +2,7 @@ import { OutputMode, exec } from "https://deno.land/x/exec/mod.ts";
 
 
 import { EndpointConfig } from "./endpoint-config.ts";
-import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync } from "unyt_core";
+import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -30,6 +30,23 @@ enum ContainerStatus {
 
 	@property owner!: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
+
+	#labels: string[] = []
+	#ports: [number, number][] = []
+
+	addLabel(label: string) {
+		this.#labels.push(label)
+	}
+	getFormattedLabels() {
+		return this.#labels.map(label => `--label ${label
+			.replaceAll('`', '\\`')
+			.replaceAll('(', '\\(')
+			.replaceAll(')', '\\)')
+		}`).join(" ")
+	}
+	getFormattedPorts() {
+		return this.#ports.map(ports => `-p ${ports[1]}:${ports[0]}`)
+	}
 
 	uniqueID() {
 		return 'xxxx-xxxx-xxxx-xxxx-xxxx'.replace(/[xy]/g, function(c) {
@@ -79,7 +96,7 @@ enum ContainerStatus {
 
 	protected async handleInit(){
 		try {
-			await execCommand(`docker run -d --name ${this.container_name} ${this.image}`)
+			await execCommand(`docker run -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			this.logger.error("error while creating container",e);
 			return false;
@@ -158,9 +175,26 @@ enum ContainerStatus {
 		}
 		catch (e) {
 			console.log("err:",e)
-			return false;
+			return false
 		}
 	}
+
+	protected exposePort(port:number, hostPort:number) {
+		this.#ports.push([port, hostPort])
+	}
+
+	protected enableTraefik(host: string) {
+		this.addLabel(`traefik.enable=true`);
+		this.addLabel(`traefik.http.routers.${this.image}.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${this.image}.entrypoints=web`);
+		this.addLabel(`traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https`);
+		this.addLabel(`traefik.http.routers.${this.image}.middlewares=redirect-to-https@docker`);
+		this.addLabel(`traefik.http.routers.${this.image}.middlewares=redirect-to-https@docker`);
+		this.addLabel(`traefik.http.routers.${this.image}-secured.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${this.image}-secured.tls=true`);
+		this.addLabel(`traefik.http.routers.${this.image}-secured.tls.certresolver=myhttpchallenge`);
+	}
+
 }
 
 @sync class WorkbenchContainer extends Container {
@@ -273,13 +307,15 @@ enum ContainerStatus {
 
 	@property branch?:string
 	@property gitURL!:string
+	@property stage!:string
 
-	constructor(owner: Datex.Endpoint, gitURL: string, branch?:string) {super(owner)}
-	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, branch?: string) {
+	constructor(owner: Datex.Endpoint, gitURL: string, branch?:string, stage?: string) {super(owner)}
+	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, branch?: string, stage = 'prod') {
 		this.construct(owner)
 		this.branch = branch;
 		this.gitURL = url;
 		this.name = url;
+		this.stage = stage;
 	}
 
 	// custom workbench container init
@@ -291,8 +327,23 @@ enum ContainerStatus {
 			logger.info("repo: " + this.gitURL);
 			logger.info("branch: " + this.branch);
 			
+			// clone repo
+			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
+			const dockerfilePath = `${dir}/Dockerfile`;
+			const repoPath = `${dir}/repo`;
+			console.log("dir",dir.toString())
+
+			await execCommand(`git clone ${this.gitURL} ${repoPath}`)
+
+			// copy dockerfile
+			const dockerfile = await Deno.readTextFile('./res/uix-app-docker/Dockerfile');
+			await Deno.writeTextFile(dockerfilePath, dockerfile);
+
 			// create docker container
-			await execCommand(`docker build --build-arg repo=${this.gitURL} -f ./res/uix-app-docker/Dockerfile -t ${this.image} .`)
+			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} -t ${this.image} ${dir}`)
+
+			// this.exposePort(80, 80);
+			this.enableTraefik('placeholder.unyt.app');
 		}
 
 		catch (e) {
@@ -370,7 +421,7 @@ logger.info("containers", containers)
 
 async function execCommand(command:string) {
 	console.log("exec: " + command)
-	const {status, output} = (await exec(command, {output: OutputMode.Capture}));
+	const {status, output} = (await exec(`sh -c "${command}"`, {output: OutputMode.Capture}));
 	console.log(status, output)
 
 	if (!status.success) throw output;

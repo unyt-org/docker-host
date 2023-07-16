@@ -342,7 +342,7 @@ enum ContainerStatus {
 			// create docker container
 			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} -t ${this.image} ${dir}`)
 
-			// this.exposePort(80, 80);
+			this.exposePort(80, 80);
 			this.enableTraefik('placeholder.unyt.app');
 		}
 

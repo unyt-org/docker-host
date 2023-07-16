@@ -28,6 +28,8 @@ enum ContainerStatus {
 	@property name = "Container"
 	@property id = '0';
 
+	network = "main"
+
 	@property owner!: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
 
@@ -96,7 +98,7 @@ enum ContainerStatus {
 
 	protected async handleInit(){
 		try {
-			await execCommand(`docker run -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedLabels()} ${this.image}`)
+			await execCommand(`docker run --network=${this.network} -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			this.logger.error("error while creating container",e);
 			return false;

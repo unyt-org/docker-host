@@ -9,7 +9,6 @@ ENV UIX_HOST_ENDPOINT=$host_endpoint
 # Copy repo
 WORKDIR /app
 COPY ./repo .
-WORKDIR /app/src
 
 EXPOSE 80
 

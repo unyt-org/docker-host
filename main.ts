@@ -1,10 +1,11 @@
-import { OutputMode, exec } from "https://deno.land/x/exec/mod.ts";
-
-import { Path } from 'unyt_node/path.ts';
+import { OutputMode, exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
 
 import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
-import { Class } from "https://dev.cdn.unyt.org/unyt_core/utils/global_types.ts";
+import { Class } from "unyt_core/utils/global_types.ts";
+
+import { Path } from "unyt_node/path.ts";
+
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -15,7 +16,8 @@ enum ContainerStatus {
 	RUNNING = 2,
 	STOPPING = 3,
 	FAILED = 4,
-	INITIALIZING = 5
+	INITIALIZING = 5,
+	ONLINE = 6
 }
 
 // parent class for all types of containers
@@ -37,10 +39,16 @@ enum ContainerStatus {
 
 	#labels: string[] = []
 	#ports: [number, number][] = []
+	#env: Record<string,string> = {}
 
 	addLabel(label: string) {
 		this.#labels.push(label)
 	}
+
+	addEnvironmentVariable(name: string, value: string) {
+		this.#env[name] = value;
+	}
+
 	getFormattedLabels() {
 		return this.#labels.map(label => `--label ${label
 			.replaceAll('`', '\\`')
@@ -50,6 +58,9 @@ enum ContainerStatus {
 	}
 	getFormattedPorts() {
 		return this.#ports.map(ports => `-p ${ports[1]}:${ports[0]}`)
+	}
+	getFormattedEnvVariables() {
+		return Object.entries(this.#env).map(([name, value]) => `--env ${name}=${value}`)
 	}
 
 	uniqueID() {
@@ -75,8 +86,16 @@ enum ContainerStatus {
 
 		// start => RUNNING or FAILED
 		const running = await this.handleStart();
-		if (running) this.status = ContainerStatus.RUNNING;
+		if (running) {
+			this.status = ContainerStatus.RUNNING;
+
+			// get online state
+			const online = await this.handleOnline();
+			if (online) this.status = ContainerStatus.ONLINE;
+			else this.status = ContainerStatus.FAILED;
+		}
 		else this.status = ContainerStatus.FAILED;
+
 
 		return running;
 	}
@@ -100,7 +119,7 @@ enum ContainerStatus {
 
 	protected async handleInit(){
 		try {
-			await execCommand(`docker run --network=${this.network} -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedLabels()} ${this.image}`)
+			await execCommand(`docker run --network=${this.network} -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			this.logger.error("error while creating container",e);
 			return false;
@@ -146,6 +165,10 @@ enum ContainerStatus {
 		return true;
 	}
 
+	protected async handleOnline() {
+		return false;
+	}
+
 	@property async stop(force = true){
 		this.logger.info("Stopping Container " + this.container_name);
 
@@ -162,6 +185,18 @@ enum ContainerStatus {
 		return true;
 	}
 
+	@property public getLogs() {
+		const p = Deno.run({
+			cmd: ['docker', 'logs', '--follow', this.container_name],
+			stdout: 'piped', 
+			stderr: 'piped'
+		})
+		const stream = $$(new Datex.Stream());
+		stream.pipe(p.stdout.readable);
+		stream.pipe(p.stderr.readable);
+		return stream;
+	}
+
 	public async remove(){
 		// remove from containers list
 		containers.getAuto(this.owner).delete(this);
@@ -172,6 +207,14 @@ enum ContainerStatus {
 			this.logger.error("error while removing container",e);
 			return false;
 		}
+
+		try {
+			await execCommand(`docker image rm -f ${this.image}`)
+		} catch (e) {
+			this.logger.error("error while removing container image",e);
+			return false;
+		}
+
 		return true;
 	}
 
@@ -200,6 +243,8 @@ enum ContainerStatus {
 		this.addLabel(`traefik.http.routers.${this.image}-secured.rule=Host(\`${host}\`)`);
 		this.addLabel(`traefik.http.routers.${this.image}-secured.tls=true`);
 		this.addLabel(`traefik.http.routers.${this.image}-secured.tls.certresolver=myhttpchallenge`);
+
+		this.addEnvironmentVariable("UIX_HOST_DOMAINS", host);
 	}
 
 }
@@ -247,12 +292,8 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
-	override async handleStart(){
-		if (!await super.handleStart()) return false;
-
-		// check if endpoint is reachable
-		// wait some time TODO wait until endpoint calls
-		await new Promise<void>(resolve=>{setTimeout(()=>resolve(),6000)});
+	override async handleOnline() {
+		await sleep(6000);
 		try {
 			await Datex.Supranet.pingEndpoint(this.config.endpoint);
 		}
@@ -264,6 +305,7 @@ enum ContainerStatus {
 		this.logger.success("Workbench Endpoint is reachable");
 		return true;
 	}
+
 }
 
 
@@ -321,8 +363,13 @@ enum ContainerStatus {
 	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domain?: string) {super(owner)}
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domain?: string) {
 		this.construct(owner)
-		this.endpoint = endpoint;
+
+		// TODO fix: convert https to ssh url
+		if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:') + ".git";
+
+		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.gitURL = gitURL;
+		
 		this.branch = branch;
 		this.stage = stage;
 		this.domain = domain;
@@ -379,10 +426,7 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
-
-	override async handleStart(){
-		if (!await super.handleStart()) return false;
-
+	override async handleOnline(){
 		// wait until endpoint inside container is reachable
 		this.logger.info("Waiting for "+this.endpoint+" to come online");
 		let iterations = 0;
@@ -392,7 +436,7 @@ enum ContainerStatus {
 				this.logger.success("Endpoint "+this.endpoint+" is online");
 				return true;
 			}
-			if (iterations++ > 30) {
+			if (iterations++ > 20) {
 				this.logger.error("Endpoint "+this.endpoint+" not reachable")
 				return false;
 			}

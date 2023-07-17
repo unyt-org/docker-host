@@ -1,8 +1,10 @@
 import { OutputMode, exec } from "https://deno.land/x/exec/mod.ts";
 
+import { Path } from 'unyt_node/path.ts';
 
 import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
+import { Class } from "https://dev.cdn.unyt.org/unyt_core/utils/global_types.ts";
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -17,7 +19,7 @@ enum ContainerStatus {
 }
 
 // parent class for all types of containers
-@sync class Container {
+@sync('Container') class Container {
 
 	protected logger!:Datex.Logger;
 	#initialized = false;
@@ -160,7 +162,10 @@ enum ContainerStatus {
 		return true;
 	}
 
-	protected async remove(){
+	public async remove(){
+		// remove from containers list
+		containers.getAuto(this.owner).delete(this);
+
 		try {
 			await execCommand(`docker rm -f ${this.container_name}`)
 		} catch (e) {
@@ -199,7 +204,7 @@ enum ContainerStatus {
 
 }
 
-@sync class WorkbenchContainer extends Container {
+@sync('WorkbenchContainer') class WorkbenchContainer extends Container {
 
 	@property config!: EndpointConfig
 
@@ -262,7 +267,7 @@ enum ContainerStatus {
 }
 
 
-@sync class RemoteImageContainer extends Container {
+@sync('RemoteImageContainer') class RemoteImageContainer extends Container {
 
 	@property version?:string
 	@property url!:string
@@ -305,47 +310,65 @@ enum ContainerStatus {
 }
 
 
-@sync class UIXAppContainer extends Container {
+@sync('UIXAppContainer') class UIXAppContainer extends Container {
 
 	@property branch?:string
 	@property gitURL!:string
 	@property stage!:string
+	@property domain?:string
+	@property endpoint!:Datex.Endpoint
 
-	constructor(owner: Datex.Endpoint, gitURL: string, branch?:string, stage?: string) {super(owner)}
-	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, branch?: string, stage = 'prod') {
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domain?: string) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domain?: string) {
 		this.construct(owner)
+		this.endpoint = endpoint;
+		this.gitURL = gitURL;
 		this.branch = branch;
-		this.gitURL = url;
-		this.name = url;
 		this.stage = stage;
+		this.domain = domain;
 	}
 
 	// custom workbench container init
 	override async handleInit(){
+
+		// remove any existing previous container
+		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer, properties: {
+			gitURL: this.gitURL,
+			stage: this.stage
+		}})
+		for (const existingContainer of existingContainers) {
+			this.logger.error("removing existing container",existingContainer)
+			await existingContainer.remove()
+		}
+
+
 		try {
 			this.image = `uix-app-${new Date().getTime()}`
 	
-			logger.info("image: " + this.image);
-			logger.info("repo: " + this.gitURL);
-			logger.info("branch: " + this.branch);
-			
+			const domain = this.domain ?? Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","");
+
+			this.logger.info("image: " + this.image);
+			this.logger.info("repo: " + this.gitURL);
+			this.logger.info("branch: " + this.branch);
+			this.logger.info("endpoint: " + this.endpoint);
+			this.logger.info("url: " + domain);
+
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
-			console.log("dir",dir.toString())
 
 			await execCommand(`git clone ${this.gitURL} ${repoPath}`)
+			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// copy dockerfile
 			const dockerfile = await Deno.readTextFile('./res/uix-app-docker/Dockerfile');
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// create docker container
-			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} -t ${this.image} ${dir}`)
+			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
 
-			this.exposePort(80, 80);
-			this.enableTraefik('placeholder.unyt.app');
+			this.enableTraefik(domain);
 		}
 
 		catch (e) {
@@ -355,6 +378,27 @@ enum ContainerStatus {
 
 		return super.handleInit();
 	}
+
+
+	override async handleStart(){
+		if (!await super.handleStart()) return false;
+
+		// wait until endpoint inside container is reachable
+		this.logger.info("Waiting for "+this.endpoint+" to come online");
+		let iterations = 0;
+		while (true) {
+			await sleep(2000);
+			if (await this.endpoint.isOnline()) {
+				this.logger.success("Endpoint "+this.endpoint+" is online");
+				return true;
+			}
+			if (iterations++ > 30) {
+				this.logger.error("Endpoint "+this.endpoint+" not reachable")
+				return false;
+			}
+		}
+	}
+	
 }
 
 @default_property @scope class ContainerManager {
@@ -396,13 +440,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domain?: string):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		logger.info("Creating new UIX App Container for " + sender, gitURL, branch);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, gitURL, branch);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domain);
 		container.start();
 
 		// link container to requesting endpoint
@@ -415,6 +459,29 @@ enum ContainerStatus {
 		containers.getAuto(endpoint).add(container);
 	}
 
+
+	public static findContainer({type, properties, endpoint}: {type?: Class<Container>, endpoint?: Datex.Endpoint, properties?: Record<string, any>}) {
+		const matches = []
+		iterate: for (const [containerEndpoint, containerSet] of containers) {
+			// match endpoint
+			if (endpoint && !containerEndpoint.equals(endpoint)) continue;
+
+			for (const container of containerSet) {
+				// match container type
+				if (!type || container instanceof type) {
+					// match properties
+					if (properties) {
+						for (const [key, value] of Object.entries(properties)) {
+							if ((container as any)[key] !== value) continue iterate;
+						}
+					}
+					matches.push(container);
+				}
+			}
+		}
+		return matches;
+	}
+
 }
 
 const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
@@ -424,16 +491,7 @@ logger.info("containers", containers)
 async function execCommand(command:string) {
 	console.log("exec: " + command)
 	const {status, output} = (await exec(`sh -c "${command}"`, {output: OutputMode.Capture}));
-	console.log(status, output)
 
 	if (!status.success) throw output;
 	else return output;
-
-	// return new Promise<string>((resolve, reject)=>{
-	// 	exec(command, (error, stdout, stderr)=> {
-	// 		if (error) reject(error);
-	// 		if (stderr) reject(stderr);
-	// 		else resolve(stdout.replace(/\n$/, ''));
-	// 	})
-	// })
 }

@@ -4,8 +4,6 @@ import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
 
-import { Path } from "unyt_node/path.ts";
-
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -40,9 +38,19 @@ enum ContainerStatus {
 	#labels: string[] = []
 	#ports: [number, number][] = []
 	#env: Record<string,string> = {}
+	#volumes: Record<string,string> = {}
 
 	addLabel(label: string) {
 		this.#labels.push(label)
+	}
+
+	formatVolumeName(name: string) {
+		return name.replace(/[^a-zA-Z0-9_.-]/g, '-')
+	}
+
+	async addVolume(name: string, path: string) {
+		await execCommand(`docker volume create ${name}`)
+		this.#volumes[name] = path;
 	}
 
 	addEnvironmentVariable(name: string, value: string) {
@@ -62,9 +70,12 @@ enum ContainerStatus {
 	getFormattedEnvVariables() {
 		return Object.entries(this.#env).map(([name, value]) => `--env ${name}=${value}`)
 	}
+	getFormattedVolumes() {
+		return Object.entries(this.#volumes).map(([name, path]) => `-v ${name}:${path}`)
+	}
 
-	uniqueID() {
-		return 'xxxx-xxxx-xxxx-xxxx-xxxx'.replace(/[xy]/g, function(c) {
+	uniqueID(size = 4) {
+		return new Array(size).fill('xxxx').join('-').replace(/[xy]/g, function(c) {
 			const r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
 			return v.toString(16);
 		});
@@ -119,7 +130,8 @@ enum ContainerStatus {
 
 	protected async handleInit(){
 		try {
-			await execCommand(`docker run --network=${this.network} -d --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
+			const restartPolicy = "on-failure"
+			await execCommand(`docker run --network=${this.network} -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			this.logger.error("error while creating container",e);
 			return false;
@@ -201,19 +213,8 @@ enum ContainerStatus {
 		// remove from containers list
 		containers.getAuto(this.owner).delete(this);
 
-		try {
-			await execCommand(`docker rm -f ${this.container_name}`)
-		} catch (e) {
-			this.logger.error("error while removing container",e);
-			return false;
-		}
-
-		try {
-			await execCommand(`docker image rm -f ${this.image}`)
-		} catch (e) {
-			this.logger.error("error while removing container image",e);
-			return false;
-		}
+		await Container.removeContainer(this.container_name);
+		await Container.removeImage(this.image);
 
 		return true;
 	}
@@ -245,6 +246,24 @@ enum ContainerStatus {
 		this.addLabel(`traefik.http.routers.${this.image}-secured.tls.certresolver=myhttpchallenge`);
 
 		this.addEnvironmentVariable("UIX_HOST_DOMAINS", host);
+	}
+
+	public static async removeContainer(name: string) {
+		try {
+			await execCommand(`docker rm -f ${name}`)
+		} catch (e) {
+			logger.error("error while removing container",e);
+			return false;
+		}
+	}
+
+	public static async removeImage(name: string) {
+		try {
+			await execCommand(`docker image rm -f ${name}`)
+		} catch (e) {
+			logger.error("error while removing container image",e);
+			return false;
+		}
 	}
 
 }
@@ -367,6 +386,8 @@ enum ContainerStatus {
 		// TODO fix: convert https to ssh url
 		if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:') + ".git";
 
+		this.container_name = endpoint.name + '-' + (stage??'')
+
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.gitURL = gitURL;
 		
@@ -384,13 +405,16 @@ enum ContainerStatus {
 			stage: this.stage
 		}})
 		for (const existingContainer of existingContainers) {
-			this.logger.error("removing existing container",existingContainer)
+			this.logger.error("removing existing container", existingContainer)
 			await existingContainer.remove()
 		}
 
+		// also remove docker container + docker image with same name remove to make sure
+		await Container.removeContainer(this.container_name);
+		await Container.removeImage(this.image);
 
 		try {
-			this.image = `uix-app-${new Date().getTime()}`
+			this.image = this.container_name
 	
 			const domain = this.domain ?? Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","");
 
@@ -415,7 +439,13 @@ enum ContainerStatus {
 			// create docker container
 			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
 
+			// remove tmp dir
+			await Deno.remove(dir, {recursive: true});
+
+			// enable traefik routing
 			this.enableTraefik(domain);
+			// add persistent volume for datex cache
+			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 		}
 
 		catch (e) {
@@ -425,6 +455,7 @@ enum ContainerStatus {
 
 		return super.handleInit();
 	}
+
 
 	override async handleOnline(){
 		// wait until endpoint inside container is reachable

@@ -379,8 +379,8 @@ enum ContainerStatus {
 	@property domain?:string
 	@property endpoint!:Datex.Endpoint
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domain?: string) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domain?: string) {
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domain?: string, env?:string[]) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domain?: string, env?:string[]) {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
@@ -394,6 +394,13 @@ enum ContainerStatus {
 		this.branch = branch;
 		this.stage = stage;
 		this.domain = domain;
+		
+		// inject environment variables
+		for (const envVar of env??[]) {
+			const [key, val] = envVar.split("=");
+			this.addEnvironmentVariable(key, val)
+		}
+
 	}
 
 	// custom workbench container init
@@ -515,13 +522,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domain?: string):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domain?: string, env?: string[]):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
-		logger.info("Creating new UIX App Container for " + sender, gitURL, branch);
+		logger.info("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domain);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domain, env);
 		container.start();
 
 		// link container to requesting endpoint

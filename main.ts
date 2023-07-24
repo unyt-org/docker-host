@@ -436,7 +436,7 @@ enum ContainerStatus {
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 
-			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`)
+			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// copy dockerfile
@@ -571,10 +571,20 @@ const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpo
 logger.info("containers", containers)
 
 
-async function execCommand(command:string) {
+async function execCommand(command:string, denoRun = false) {
 	console.log("exec: " + command)
-	const {status, output} = (await exec(`sh -c "${command}"`, {output: OutputMode.Capture}));
 
-	if (!status.success) throw output;
-	else return output;
+	if (denoRun) {
+		const status = await Deno.run({
+			cmd: command.split(" "),
+		}).status();
+	
+		if (!status.success) throw status.code;
+		else return status;
+	}
+	else {
+		const {status, output} = (await exec(`sh -c "${command}"`, {output: OutputMode.Capture}));
+		if (!status.success) throw output;
+		else return output;
+	}
 }

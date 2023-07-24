@@ -436,7 +436,7 @@ enum ContainerStatus {
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 
-			await execCommand(`git clone ${this.gitURL} ${repoPath}`)
+			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`)
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// copy dockerfile

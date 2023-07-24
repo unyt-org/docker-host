@@ -65,13 +65,13 @@ enum ContainerStatus {
 		}`).join(" ")
 	}
 	getFormattedPorts() {
-		return this.#ports.map(ports => `-p ${ports[1]}:${ports[0]}`)
+		return this.#ports.map(ports => `-p ${ports[1]}:${ports[0]}`).join(" ")
 	}
 	getFormattedEnvVariables() {
-		return Object.entries(this.#env).map(([name, value]) => `--env ${name}=${value}`)
+		return Object.entries(this.#env).map(([name, value]) => `--env ${name}=${value}`).join(" ")
 	}
 	getFormattedVolumes() {
-		return Object.entries(this.#volumes).map(([name, path]) => `-v ${name}:${path}`)
+		return Object.entries(this.#volumes).map(([name, path]) => `-v ${name}:${path}`).join(" ")
 	}
 
 	uniqueID(size = 4) {
@@ -525,7 +525,7 @@ enum ContainerStatus {
 	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domain?: string, env?: string[]):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
-		logger.info("Creating new UIX App Container for " + sender, gitURL, branch, env);
+		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domain, env);

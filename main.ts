@@ -4,6 +4,8 @@ import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
 
+import { createHash } from "https://deno.land/std/hash/mod.ts";
+
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -234,16 +236,24 @@ enum ContainerStatus {
 		this.#ports.push([port, hostPort])
 	}
 
-	protected enableTraefik(host: string) {
+	protected enableTraefik(host: string, port?: number) {
+		const name = this.image + "-" + createHash("md5").update(host).toString();
+
 		this.addLabel(`traefik.enable=true`);
-		this.addLabel(`traefik.http.routers.${this.image}.rule=Host(\`${host}\`)`);
-		this.addLabel(`traefik.http.routers.${this.image}.entrypoints=web`);
+		this.addLabel(`traefik.http.routers.${name}.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${name}.entrypoints=web`);
 		this.addLabel(`traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https`);
-		this.addLabel(`traefik.http.routers.${this.image}.middlewares=redirect-to-https@docker`);
-		this.addLabel(`traefik.http.routers.${this.image}.middlewares=redirect-to-https@docker`);
-		this.addLabel(`traefik.http.routers.${this.image}-secured.rule=Host(\`${host}\`)`);
-		this.addLabel(`traefik.http.routers.${this.image}-secured.tls=true`);
-		this.addLabel(`traefik.http.routers.${this.image}-secured.tls.certresolver=myhttpchallenge`);
+		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
+		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
+		this.addLabel(`traefik.http.routers.${name}-secured.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${name}-secured.tls=true`);
+		this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=myhttpchallenge`);
+
+		if (port) {
+			this.addLabel(`traefik.http.routers.${name}.service=${name}`);
+			this.addLabel(`traefik.http.routers.${name}-secured.service=${name}`);
+			this.addLabel(`traefik.http.services.${name}.loadbalancer.server.port=${port}`);
+		}
 
 		this.addEnvironmentVariable("UIX_HOST_DOMAINS", host);
 	}
@@ -450,7 +460,9 @@ enum ContainerStatus {
 			await Deno.remove(dir, {recursive: true});
 
 			// enable traefik routing
-			this.enableTraefik(domains);
+			for (const [domain, port] of Object.entries(domains)) {
+				this.enableTraefik(domain, port);
+			}
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 		}

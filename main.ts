@@ -376,11 +376,11 @@ enum ContainerStatus {
 	@property branch?:string
 	@property gitURL!:string
 	@property stage!:string
-	@property domain?:string
+	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domain?: string, env?:string[]) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domain?: string, env?:string[]) {
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[]) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[]) {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
@@ -393,7 +393,7 @@ enum ContainerStatus {
 		
 		this.branch = branch;
 		this.stage = stage;
-		this.domain = domain;
+		this.domains = domains ?? {};
 		
 		// inject environment variables
 		for (const envVar of env??[]) {
@@ -423,13 +423,13 @@ enum ContainerStatus {
 		try {
 			this.image = this.container_name
 	
-			const domain = this.domain ?? Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","");
+			const domains = this.domains ?? [Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","")];
 
 			this.logger.info("image: " + this.image);
 			this.logger.info("repo: " + this.gitURL);
 			this.logger.info("branch: " + this.branch);
 			this.logger.info("endpoint: " + this.endpoint);
-			this.logger.info("url: " + domain);
+			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
@@ -450,7 +450,7 @@ enum ContainerStatus {
 			await Deno.remove(dir, {recursive: true});
 
 			// enable traefik routing
-			this.enableTraefik(domain);
+			this.enableTraefik(domains);
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 		}
@@ -523,13 +523,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domain?: string, env?: string[]):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[]):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domain, env);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env);
 		container.start();
 
 		// link container to requesting endpoint

@@ -4,7 +4,8 @@ import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
 
-import { createHash } from "https://deno.land/std/hash/mod.ts";
+import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
+
 
 const logger = new Datex.Logger("container manager");
 
@@ -237,7 +238,7 @@ enum ContainerStatus {
 	}
 
 	protected enableTraefik(host: string, port?: number) {
-		const name = this.image + "-" + createHash("md5").update(host).toString();
+		const name = this.image + "-" + createHash("md5").update(host).toString()
 
 		this.addLabel(`traefik.enable=true`);
 		this.addLabel(`traefik.http.routers.${name}.rule=Host(\`${host}\`)`);

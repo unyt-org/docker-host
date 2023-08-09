@@ -56,6 +56,11 @@ enum ContainerStatus {
 		this.#volumes[name] = path;
 	}
 
+	addVolumePath(hostPath: string, path: string) {
+		this.#volumes[name] = path;
+	}
+
+
 	addEnvironmentVariable(name: string, value: string) {
 		this.#env[name] = value;
 	}
@@ -488,7 +493,7 @@ enum ContainerStatus {
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 
 			// add volume for host data, available in /hostdata
-			await this.addVolume('/root/data', '/hostdata')
+			await this.addVolumePath('/root/data', '/hostdata')
 		}
 
 		catch (e) {

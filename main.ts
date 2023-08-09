@@ -121,9 +121,6 @@ enum ContainerStatus {
 		// INITIALIZING ...
 		this.status = ContainerStatus.INITIALIZING;
 
-		// setup network
-		await this.handleNetwork()
-
 		// STOPPED (default state) or FAILED
 		const initialized = await this.handleInit();
 		if (initialized) this.status = ContainerStatus.STOPPED;
@@ -134,19 +131,6 @@ enum ContainerStatus {
 		return initialized;
 	}
 
-	protected async handleNetwork() {
-		// has traefik?
-		if (await execCommand(`docker container ls | grep traefik`)) {
-			console.log("has traefik container");
-		}
-		else {
-			console.log("no traefik container detected, exposing port 80 to host");
-			this.exposePort(80, 80);
-		}
-
-		// make sure main network exists
-		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
-	}
 
 	protected async handleInit(){
 		try {
@@ -431,8 +415,25 @@ enum ContainerStatus {
 
 	}
 
+	protected async handleNetwork() {
+		// has traefik?
+		if (await execCommand(`docker container ls | grep traefik`)) {
+			console.log("has traefik container");
+		}
+		else {
+			console.log("no traefik container detected, exposing port 80 to host");
+			this.exposePort(80, 80);
+		}
+
+		// make sure main network exists
+		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
+	}
+
 	// custom workbench container init
 	override async handleInit(){
+
+		// setup network
+		await this.handleNetwork()
 
 		// remove any existing previous container
 		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer, properties: {
@@ -444,12 +445,13 @@ enum ContainerStatus {
 			await existingContainer.remove()
 		}
 
+		this.image = this.container_name
+
 		// also remove docker container + docker image with same name remove to make sure
 		await Container.removeContainer(this.container_name);
 		await Container.removeImage(this.image);
 
 		try {
-			this.image = this.container_name
 	
 			const domains = this.domains ?? [Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","")];
 
@@ -601,7 +603,7 @@ const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpo
 logger.info("containers", containers)
 
 
-async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Deno.ProcessStatus : string {
+async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Promise<Deno.ProcessStatus> : Promise<string> {
 	console.log("exec: " + command)
 
 	if (denoRun) {

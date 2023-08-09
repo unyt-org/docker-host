@@ -121,6 +121,9 @@ enum ContainerStatus {
 		// INITIALIZING ...
 		this.status = ContainerStatus.INITIALIZING;
 
+		// setup network
+		await this.handleNetwork()
+
 		// STOPPED (default state) or FAILED
 		const initialized = await this.handleInit();
 		if (initialized) this.status = ContainerStatus.STOPPED;
@@ -129,6 +132,20 @@ enum ContainerStatus {
 		this.#initialized = initialized;
 
 		return initialized;
+	}
+
+	protected async handleNetwork() {
+		// has traefik?
+		if (await execCommand(`docker container ls | grep traefik`)) {
+			console.log("has traefik container");
+		}
+		else {
+			console.log("no traefik container detected, exposing port 80 to host");
+			this.exposePort(80, 80);
+		}
+
+		// make sure main network exists
+		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
 	}
 
 	protected async handleInit(){
@@ -584,7 +601,7 @@ const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpo
 logger.info("containers", containers)
 
 
-async function execCommand(command:string, denoRun = false) {
+async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Deno.ProcessStatus : string {
 	console.log("exec: " + command)
 
 	if (denoRun) {

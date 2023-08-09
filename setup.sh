@@ -40,7 +40,7 @@ mkdir -p $HOME/.unyt-docker-host/
 
 DIR=$HOME/.unyt-docker-host/$ENDPOINT
 GIT_ORIGIN=https://github.com/unyt-org/docker-host.git
-SERVICE_NAME=unyt_docker_host_$ENDPOINT
+SERVICE_NAME=$(systemd-escape "unyt_docker_host_$ENDPOINT")
 DENO_DIR=$(which deno)
 
 # clone git repo

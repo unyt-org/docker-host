@@ -492,8 +492,8 @@ enum ContainerStatus {
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 
-			// add volume for host data, available in /hostdata
-			this.addVolumePath('/root/data', '/hostdata')
+			// add volume for host data, available in /app/hostdata
+			this.addVolumePath('/root/data', '/app/hostdata')
 		}
 
 		catch (e) {

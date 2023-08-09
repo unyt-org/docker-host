@@ -57,7 +57,7 @@ enum ContainerStatus {
 	}
 
 	addVolumePath(hostPath: string, path: string) {
-		this.#volumes[name] = path;
+		this.#volumes[hostPath] = path;
 	}
 
 
@@ -493,7 +493,7 @@ enum ContainerStatus {
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 
 			// add volume for host data, available in /hostdata
-			await this.addVolumePath('/root/data', '/hostdata')
+			this.addVolumePath('/root/data', '/hostdata')
 		}
 
 		catch (e) {

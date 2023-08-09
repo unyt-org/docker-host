@@ -10,6 +10,11 @@ if ! [ -x "$(command -v docker)" ]; then
 	exit 1
 fi
 
+if ! [ -x "$(command -v unzip)" ]; then
+	echo "unzip must be installed"
+	exit 1
+fi
+
 # Install deno
 if ! [ -x "$(command -v deno)" ]; then
 	echo 'Installing deno...'

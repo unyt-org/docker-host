@@ -27,8 +27,13 @@ if ! [ -x "$(command -v deno)" ]; then
 	echo "export DENO_INSTALL="\$HOME/.deno"" >> ~/.zprofile
 	echo "export PATH=\"\$DENO_INSTALL/bin:\$PATH\"" >> ~/.zprofile
 
+
+	echo "export DENO_INSTALL="\$HOME/.deno"" >> ~/.bashrc
+	echo "export PATH=\"\$DENO_INSTALL/bin:\$PATH\"" >> ~/.bashrc
+	
 	. ~/.bash_profile
 	. ~/.zprofile
+	. ~/.bashrc
 fi
 
 

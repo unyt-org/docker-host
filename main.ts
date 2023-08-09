@@ -417,10 +417,11 @@ enum ContainerStatus {
 
 	protected async handleNetwork() {
 		// has traefik?
-		if (await execCommand(`docker container ls | grep traefik`)) {
+		try {
+			await execCommand(`docker container ls | grep traefik`)
 			console.log("has traefik container");
 		}
-		else {
+		catch {
 			console.log("no traefik container detected, exposing port 80 to host");
 			this.exposePort(80, 80);
 		}
@@ -485,6 +486,9 @@ enum ContainerStatus {
 			}
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
+
+			// add volume for host data, available in /hostdata
+			await this.addVolume('/root/data', '/hostdata')
 		}
 
 		catch (e) {

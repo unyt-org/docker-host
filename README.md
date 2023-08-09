@@ -5,9 +5,7 @@ Containers can be created via a DATEX interface.
 ## Setup
 A docker host instance can be created by running the `setup.sh` script:
 ```shell
-$ curl -s https://raw.githubusercontent.com/unyt-org/docker-host/master/setup.sh | sh
-Please enter the endpoint id for this docker host:
-@+YOUR_DOCKER_HOST
+curl -s https://raw.githubusercontent.com/unyt-org/docker-host/master/setup.sh | bash -s @+YOUR_DOCKER_HOST
 ```
 
 

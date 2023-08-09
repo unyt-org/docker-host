@@ -32,8 +32,9 @@ if ! [ -x "$(command -v deno)" ]; then
 fi
 
 
-echo "Please enter the endpoint id for this docker host:"
-read ENDPOINT
+# echo "Please enter the endpoint id for this docker host:"
+# read ENDPOINT
+ENDPOINT="$1"
 
 mkdir -p $HOME/.unyt-docker-host/
 

@@ -484,7 +484,7 @@ enum ContainerStatus {
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// create docker container
-			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} --build-arg uix_args="${this.args?.join(" ")??""}" -t ${this.image} ${dir}`)
+			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} --build-arg uix_watch="${this.args?.join(" ")??""}" -t ${this.image} ${dir}`)
 
 			// remove tmp dir
 			await Deno.remove(dir, {recursive: true});
@@ -501,8 +501,8 @@ enum ContainerStatus {
 		}
 
 		catch (e) {
-			console.log(e);
-			this.logger.error("Error initializing UIX container");
+			console.log("eror", e);
+			// this.logger.error("Error initializing UIX container");
 			return false;
 		}
 
@@ -628,7 +628,7 @@ async function execCommand<DenoRun extends boolean = false>(command:string, deno
 		else return status;
 	}
 	else {
-		const {status, output} = (await exec(`sh -c "${command}"`, {output: OutputMode.Capture}));
+		const {status, output} = (await exec(`sh -c "${command.replaceAll('"', '\\"')}"`, {output: OutputMode.Capture}));
 		if (!status.success) throw output;
 		else return output;
 	}

@@ -60,7 +60,6 @@ enum ContainerStatus {
 		this.#volumes[hostPath] = path;
 	}
 
-
 	addEnvironmentVariable(name: string, value: string) {
 		this.#env[name] = value;
 	}
@@ -396,8 +395,10 @@ enum ContainerStatus {
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[]) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[]) {
+	@property args?: string[]
+
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[]) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[]) {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
@@ -407,6 +408,7 @@ enum ContainerStatus {
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.gitURL = gitURL;
+		this.args = args;
 		
 		this.branch = branch;
 		this.stage = stage;
@@ -480,7 +482,7 @@ enum ContainerStatus {
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// create docker container
-			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
+			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} --build-arg uix_args="${this.args?.join(" ")??""}" -t ${this.image} ${dir}`)
 
 			// remove tmp dir
 			await Deno.remove(dir, {recursive: true});
@@ -564,13 +566,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[]):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[]):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args);
 		container.start();
 
 		// link container to requesting endpoint

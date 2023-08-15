@@ -320,7 +320,8 @@ enum ContainerStatus {
 		}
 
 		catch (e) {
-			this.logger.error("Error initializing container",e);
+			console.log(e)
+			this.logger.error("Error initializing container");
 			return false;
 		}
 
@@ -365,7 +366,8 @@ enum ContainerStatus {
 		}
 
 		catch (e) {
-			this.logger.error("Error initializing container",e);
+			console.log(e)
+			this.logger.error("Error initializing container");
 			return false;
 		}
 		return true;

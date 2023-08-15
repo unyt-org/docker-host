@@ -321,7 +321,7 @@ enum ContainerStatus {
 
 		catch (e) {
 			console.log(e)
-			this.logger.error("Error initializing container");
+			this.logger.error("Error initializing workbench container");
 			return false;
 		}
 
@@ -367,7 +367,7 @@ enum ContainerStatus {
 
 		catch (e) {
 			console.log(e)
-			this.logger.error("Error initializing container");
+			this.logger.error("Error initializing remote image container");
 			return false;
 		}
 		return true;
@@ -502,7 +502,7 @@ enum ContainerStatus {
 
 		catch (e) {
 			console.log(e);
-			this.logger.error("Error initializing container");
+			this.logger.error("Error initializing UIX container");
 			return false;
 		}
 
@@ -613,7 +613,7 @@ enum ContainerStatus {
 }
 
 const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
-logger.info("containers", containers)
+logger.info(containers.size + " containers in cache")
 
 
 async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Promise<Deno.ProcessStatus> : Promise<string> {

@@ -399,13 +399,15 @@ enum ContainerStatus {
 
 	@property args?: string[]
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[]) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[]) {
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], gitHubToken?: string) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], gitHubToken?: string) {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
 		if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:') + ".git";
-
+		// add gh token to URL
+		if (gitHubToken) gitURL = gitURL.replace("git@", gitHubToken+"@")
+		
 		this.container_name = endpoint.name + '-' + (stage??'')
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
@@ -569,13 +571,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[]):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], gitHubToken?: string):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, gitHubToken);
 		container.start();
 		await sleep(2000); // wait for immediate status updates
 

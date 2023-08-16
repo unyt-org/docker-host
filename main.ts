@@ -10,10 +10,10 @@ import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
 const defaulTraefikToml = `
 [entryPoints]
-  [entryPoints.http]
+  [entryPoints.web]
   address = ":80"
 
-  [entryPoints.https]
+  [entryPoints.web-secure]
   address = ":443"
 
 [api]
@@ -22,6 +22,13 @@ const defaulTraefikToml = `
 [providers.docker]
   endpoint = "unix:///var/run/docker.sock"
   exposedByDefault = false
+  network = "main"
+
+[certificatesresolvers.myhttpchallenge.acme]
+    caserver = "https://acme-v02.api.letsencrypt.org/directory"
+    email = "postmaster@unyt.org"
+    [certificatesresolvers.myhttpchallenge.acme.httpchallenge] 
+    entrypoint = "web"
 `
 
 const logger = new Datex.Logger("container manager");

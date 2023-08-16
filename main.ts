@@ -471,6 +471,8 @@ enum ContainerStatus {
 			const traefikTomlPath = tempDir.getChildPath("traefik.toml");
 			const acmeJsonPath = tempDir.getChildPath("acme.json");
 
+			await Deno.create(acmeJsonPath.normal_pathname)
+			await execCommand(`chmod 600 ${acmeJsonPath.normal_pathname}`)
 			await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
 
 			const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");

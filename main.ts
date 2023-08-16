@@ -127,7 +127,6 @@ enum ContainerStatus {
 
 		// STOPPED (default state) or FAILED
 		const initialized = await this.handleInit();
-		console.log("initialized: " + initialized)
 		if (initialized) this.status = ContainerStatus.STOPPED;
 		else this.status = ContainerStatus.FAILED;
 
@@ -577,7 +576,7 @@ enum ContainerStatus {
 
 		// init and start RemoteImageContainer
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args);
-		container.start();
+		container.start().then(()=>logger.error(container));
 
 		// link container to requesting endpoint
 		this.addContainer(sender, container);

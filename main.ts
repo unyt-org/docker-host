@@ -3,6 +3,7 @@ import { OutputMode, exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
 import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
+import { Path } from "unyt_node/path.ts";
 
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
@@ -239,7 +240,7 @@ enum ContainerStatus {
 		}
 	}
 
-	protected exposePort(port:number, hostPort:number) {
+	exposePort(port:number, hostPort:number) {
 		this.#ports.push([port, hostPort])
 	}
 
@@ -430,18 +431,37 @@ enum ContainerStatus {
 	}
 
 	protected async handleNetwork() {
+		// make sure main network exists
+		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
+		
 		// has traefik?
 		try {
 			await execCommand(`docker container ls | grep traefik`)
 			console.log("has traefik container");
 		}
 		catch {
-			console.log("no traefik container detected, exposing port 80 to host");
-			this.exposePort(80, 80);
-		}
+			console.log("no traefik container detected, creating a new traefik container");
+			
+			// init and start traefik container
 
-		// make sure main network exists
-		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
+			const tempDir = new Path(await Deno.makeTempDir());
+			const traefikTomlPath = tempDir.getChildPath("traefik.toml");
+			const acmeJsonPath = tempDir.getChildPath("acme.json");
+
+			await Deno.writeTextFile(traefikTomlPath.normal_pathname, ``)
+
+			const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
+			traefikContainer.exposePort(80, 80)
+			traefikContainer.exposePort(443, 443)
+			traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
+			traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
+			traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
+
+			traefikContainer.start();
+			logger.error(traefikContainer)
+			// this.exposePort(80, 80);
+		}
+	
 	}
 
 	// custom workbench container init

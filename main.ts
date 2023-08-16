@@ -576,7 +576,8 @@ enum ContainerStatus {
 
 		// init and start RemoteImageContainer
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args);
-		container.start().then(()=>logger.error(container));
+		container.start();
+		await sleep(2000); // wait for immediate status updates
 
 		// link container to requesting endpoint
 		this.addContainer(sender, container);

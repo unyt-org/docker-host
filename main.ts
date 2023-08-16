@@ -8,6 +8,22 @@ import { Path } from "unyt_node/path.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
 
+const defaulTraefikToml = `
+[entryPoints]
+  [entryPoints.http]
+  address = ":80"
+
+  [entryPoints.https]
+  address = ":443"
+
+[api]
+  dashboard = true
+
+[providers.docker]
+  endpoint = "unix:///var/run/docker.sock"
+  exposedByDefault = false
+`
+
 const logger = new Datex.Logger("container manager");
 
 await Datex.Supranet.connect();
@@ -448,7 +464,7 @@ enum ContainerStatus {
 			const traefikTomlPath = tempDir.getChildPath("traefik.toml");
 			const acmeJsonPath = tempDir.getChildPath("acme.json");
 
-			await Deno.writeTextFile(traefikTomlPath.normal_pathname, ``)
+			await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
 
 			const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
 			traefikContainer.exposePort(80, 80)

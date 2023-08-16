@@ -444,7 +444,7 @@ enum ContainerStatus {
 			
 			// init and start traefik container
 
-			const tempDir = new Path(await Deno.makeTempDir());
+			const tempDir = new Path(await Deno.makeTempDir()).asDir();
 			const traefikTomlPath = tempDir.getChildPath("traefik.toml");
 			const acmeJsonPath = tempDir.getChildPath("acme.json");
 

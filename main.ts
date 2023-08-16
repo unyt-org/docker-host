@@ -141,7 +141,8 @@ enum ContainerStatus {
 			const restartPolicy = "on-failure"
 			await execCommand(`docker run --network=${this.network} -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
-			this.logger.error("error while creating container",e);
+			console.log(e);
+			this.logger.error("error while creating container");
 			return false;
 		}
 		return true;
@@ -623,7 +624,7 @@ logger.info(containers.size + " containers in cache")
 
 
 async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Promise<Deno.ProcessStatus> : Promise<string> {
-	console.log("exec: " + `sh -c "${command.replaceAll('"', '\\"')}"`)
+	console.log("exec: " + command)
 
 	if (denoRun) {
 		const status = await Deno.run({
@@ -634,7 +635,7 @@ async function execCommand<DenoRun extends boolean = false>(command:string, deno
 		else return status;
 	}
 	else {
-		const {status, output} = (await exec(`sh -c "${command.replaceAll('"', '\\"')}"`, {output: OutputMode.Capture}));
+		const {status, output} = (await exec(`bash -c "${command.replaceAll('"', '\\"')}"`, {output: OutputMode.Capture}));
 		if (!status.success) throw output;
 		else return output;
 	}

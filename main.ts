@@ -484,7 +484,8 @@ enum ContainerStatus {
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// create docker container
-			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} --build-arg uix_watch="${this.args?.join(" ")??""}" -t ${this.image} ${dir}`)
+			// TODO: --build-arg uix_args="${this.args?.join(" ")??""}"
+			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
 
 			// remove tmp dir
 			await Deno.remove(dir, {recursive: true});
@@ -617,7 +618,7 @@ logger.info(containers.size + " containers in cache")
 
 
 async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Promise<Deno.ProcessStatus> : Promise<string> {
-	console.log("exec: " + command)
+	console.log("exec: " + `sh -c "${command.replaceAll('"', '\\"')}"`)
 
 	if (denoRun) {
 		const status = await Deno.run({

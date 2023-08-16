@@ -406,7 +406,9 @@ enum ContainerStatus {
 		// TODO fix: convert https to ssh url
 		if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:') + ".git";
 		// add gh token to URL
-		if (gitHubToken) gitURL = gitURL.replace("git@", gitHubToken+"@")
+		if (gitHubToken) {
+			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
+		}
 		
 		this.container_name = endpoint.name + '-' + (stage??'')
 

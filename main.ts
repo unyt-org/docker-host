@@ -67,6 +67,8 @@ enum ContainerStatus {
 	#env: Record<string,string> = {}
 	#volumes: Record<string,string> = {}
 
+	get volumes() {return this.#volumes}
+
 	addLabel(label: string) {
 		this.#labels.push(label)
 	}
@@ -424,8 +426,8 @@ enum ContainerStatus {
 
 	@property args?: string[]
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], gitHubToken?: string) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], gitHubToken?: string) {
+	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {super(owner)}
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
@@ -435,7 +437,7 @@ enum ContainerStatus {
 			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
 		
-		this.container_name = endpoint.name + '-' + (stage??'')
+		this.container_name = endpoint.name + '-' + (endpoint.name.endsWith(stage) ? (stage??'') : '')
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.gitURL = gitURL;
@@ -449,6 +451,13 @@ enum ContainerStatus {
 		for (const envVar of env??[]) {
 			const [key, val] = envVar.split("=");
 			this.addEnvironmentVariable(key, val)
+		}
+
+		// add persistent volumes
+		for (const path of persistentVolumePaths??[]) {
+			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
+			const volumeName = this.container_name + '-' + (Object.keys(this.volumes).length-1)
+			this.addVolume(volumeName, mappedPath);
 		}
 
 	}
@@ -547,8 +556,8 @@ enum ContainerStatus {
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
 
-			// add volume for host data, available in /app/hostdata
-			this.addVolumePath('/root/data', '/app/hostdata')
+			// // add volume for host data, available in /app/hostdata
+			// this.addVolumePath('/root/data', '/app/hostdata')
 		}
 
 		catch (e) {
@@ -619,13 +628,13 @@ enum ContainerStatus {
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], gitHubToken?: string):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitHubToken?: string):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, gitHubToken);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitHubToken);
 		container.start();
 		await sleep(2000); // wait for immediate status updates
 
@@ -668,7 +677,7 @@ const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpo
 logger.info(containers.size + " containers in cache")
 
 
-async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): DenoRun extends true ? Promise<Deno.ProcessStatus> : Promise<string> {
+async function execCommand<DenoRun extends boolean = false>(command:string, denoRun?:DenoRun): Promise<DenoRun extends true ? Deno.ProcessStatus : string> {
 	console.log("exec: " + command)
 
 	if (denoRun) {
@@ -677,11 +686,11 @@ async function execCommand<DenoRun extends boolean = false>(command:string, deno
 		}).status();
 	
 		if (!status.success) throw status.code;
-		else return status;
+		else return status as any;
 	}
 	else {
 		const {status, output} = (await exec(`bash -c "${command.replaceAll('"', '\\"')}"`, {output: OutputMode.Capture}));
 		if (!status.success) throw output;
-		else return output;
+		else return output  as any;
 	}
 }

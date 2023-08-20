@@ -456,7 +456,7 @@ enum ContainerStatus {
 		// add persistent volumes
 		for (const path of persistentVolumePaths??[]) {
 			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
-			const volumeName = this.container_name + '-' + (Object.keys(this.volumes).length-1)
+			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (Object.keys(this.volumes).length))
 			this.addVolume(volumeName, mappedPath);
 		}
 
@@ -554,7 +554,7 @@ enum ContainerStatus {
 				this.enableTraefik(domain, port);
 			}
 			// add persistent volume for datex cache
-			await this.addVolume(this.formatVolumeName(this.container_name), '/datex-cache')
+			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'datex-cache'), '/datex-cache')
 
 			// // add volume for host data, available in /app/hostdata
 			// this.addVolumePath('/root/data', '/app/hostdata')

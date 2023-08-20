@@ -437,7 +437,7 @@ enum ContainerStatus {
 			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
 		
-		this.container_name = endpoint.name + '-' + (endpoint.name.endsWith(stage) ? (stage??'') : '')
+		this.container_name = endpoint.name + '-' + (endpoint.name.endsWith(stage) ? '' : (stage??''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.gitURL = gitURL;

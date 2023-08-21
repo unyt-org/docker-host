@@ -431,9 +431,9 @@ enum ContainerStatus {
 		this.construct(owner)
 
 		// TODO fix: convert https to ssh url
-		if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:') + ".git";
 		// add gh token to URL
 		if (gitHubToken) {
+			if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:');
 			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
 		

@@ -430,13 +430,16 @@ enum ContainerStatus {
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
 
+		console.log("git 1",gitURL)
 		// TODO fix: convert https to ssh url
 		// add gh token to URL
 		if (gitHubToken) {
 			if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:');
+			console.log("git 2",gitURL)
 			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
-		
+		console.log("git 3",gitURL)
+
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed

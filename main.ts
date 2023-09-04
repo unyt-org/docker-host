@@ -271,16 +271,31 @@ enum ContainerStatus {
 
 	protected enableTraefik(host: string, port?: number) {
 		const name = this.image + "-" + createHash("md5").update(host).toString()
+		const hasWildcard = host.startsWith('*.');
+
+		const hostRule = hasWildcard ?
+			`HostRegexp(\`{subhost:[a-z0-9-_]+}.${host.slice(2)}\`)` :
+			`Host(\`${host}\`)`;
 
 		this.addLabel(`traefik.enable=true`);
-		this.addLabel(`traefik.http.routers.${name}.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${name}.rule=${hostRule}`);
 		this.addLabel(`traefik.http.routers.${name}.entrypoints=web`);
 		this.addLabel(`traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https`);
 		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
 		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
-		this.addLabel(`traefik.http.routers.${name}-secured.rule=Host(\`${host}\`)`);
+		this.addLabel(`traefik.http.routers.${name}-secured.rule=${hostRule}`);
 		this.addLabel(`traefik.http.routers.${name}-secured.tls=true`);
-		this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=myhttpchallenge`);
+
+		if (hasWildcard) {
+			const rawHost = host.slice(2);
+			this.addLabel(`traefik.http.routers.${name}-secured.tls.domains[0].main=${rawHost}`);
+			this.addLabel(`traefik.http.routers.${name}-secured.tls.domains[0].sans=${host}`);
+			this.addLabel(`traefik.http.routers.${name}.tls.domains[0].main=${rawHost}`);
+			this.addLabel(`traefik.http.routers.${name}.tls.domains[0].sans=${host}`);
+			this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=mydnschallenge`);
+		} else {
+			this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=myhttpchallenge`);
+		}
 
 		if (port) {
 			this.addLabel(`traefik.http.routers.${name}.service=${name}`);

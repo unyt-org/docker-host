@@ -491,12 +491,14 @@ enum ContainerStatus {
 		}
 		catch {
 			console.log("no traefik container detected, creating a new traefik container");
+			const traefikDir = new Path("/etc/traefik/");
 			
 			// init and start traefik container
+			if (!traefikDir.fs_exists)
+                        	await Deno.mkdir("/etc/traefik/", { recursive: true });
 
-			const tempDir = new Path(await Deno.makeTempDir()).asDir();
-			const traefikTomlPath = tempDir.getChildPath("traefik.toml");
-			const acmeJsonPath = tempDir.getChildPath("acme.json");
+			const traefikTomlPath = traefikDir.asDir().getChildPath("traefik.toml");
+			const acmeJsonPath = traefikDir.asDir().getChildPath("acme.json");
 
 			await Deno.create(acmeJsonPath.normal_pathname)
 			await execCommand(`chmod 600 ${acmeJsonPath.normal_pathname}`)

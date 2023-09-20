@@ -9,8 +9,8 @@ import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
 
 const notraefik = new Path("./notraefik");
-const useTraefik = false // !notraefik.fs_exists;
-console.log("using traefik: " + notraefik, useTraefik)
+const useTraefik = !notraefik.fs_exists;
+console.log("using traefik: ", useTraefik)
 
 const defaulTraefikToml = `
 [entryPoints]

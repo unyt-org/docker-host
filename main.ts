@@ -8,6 +8,9 @@ import { Path } from "unyt_node/path.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
 
+const useTraefik = !Path.File("./notraefik").fs_exists;
+console.log("using traefik: " + useTraefik)
+
 const defaulTraefikToml = `
 [entryPoints]
   [entryPoints.web]
@@ -484,37 +487,40 @@ enum ContainerStatus {
 		// make sure main network exists
 		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
 		
-		// has traefik?
-		try {
-			await execCommand(`docker container ls | grep traefik`)
-			console.log("has traefik container");
+		if (useTraefik) {
+			// has traefik?
+			try {
+				await execCommand(`docker container ls | grep traefik`)
+				console.log("has traefik container");
+			}
+			catch {
+				console.log("no traefik container detected, creating a new traefik container");
+				const traefikDir = new Path("/etc/traefik/");
+				
+				// init and start traefik container
+				if (!traefikDir.fs_exists)
+								await Deno.mkdir("/etc/traefik/", { recursive: true });
+
+				const traefikTomlPath = traefikDir.asDir().getChildPath("traefik.toml");
+				const acmeJsonPath = traefikDir.asDir().getChildPath("acme.json");
+
+				await Deno.create(acmeJsonPath.normal_pathname)
+				await execCommand(`chmod 600 ${acmeJsonPath.normal_pathname}`)
+				await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
+
+				const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
+				traefikContainer.exposePort(80, 80)
+				traefikContainer.exposePort(443, 443)
+				traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
+				traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
+				traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
+
+				traefikContainer.start();
+				logger.error(traefikContainer)
+				// this.exposePort(80, 80);
+			}
 		}
-		catch {
-			console.log("no traefik container detected, creating a new traefik container");
-			const traefikDir = new Path("/etc/traefik/");
-			
-			// init and start traefik container
-			if (!traefikDir.fs_exists)
-                        	await Deno.mkdir("/etc/traefik/", { recursive: true });
-
-			const traefikTomlPath = traefikDir.asDir().getChildPath("traefik.toml");
-			const acmeJsonPath = traefikDir.asDir().getChildPath("acme.json");
-
-			await Deno.create(acmeJsonPath.normal_pathname)
-			await execCommand(`chmod 600 ${acmeJsonPath.normal_pathname}`)
-			await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
-
-			const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
-			traefikContainer.exposePort(80, 80)
-			traefikContainer.exposePort(443, 443)
-			traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
-			traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
-			traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
-
-			traefikContainer.start();
-			logger.error(traefikContainer)
-			// this.exposePort(80, 80);
-		}
+		
 	
 	}
 
@@ -570,9 +576,16 @@ enum ContainerStatus {
 			await Deno.remove(dir, {recursive: true});
 
 			// enable traefik routing
-			for (const [domain, port] of Object.entries(domains)) {
-				this.enableTraefik(domain, port);
+			if (useTraefik) {
+				for (const [domain, port] of Object.entries(domains)) {
+					this.enableTraefik(domain, port);
+				}
 			}
+			// expose port 80
+			else {
+				this.exposePort(80, 80)
+			}
+
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'datex-cache'), '/datex-cache')
 

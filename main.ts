@@ -574,7 +574,7 @@ enum ContainerStatus {
 			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
 
 			// remove tmp dir
-			// await Deno.remove(dir, {recursive: true});
+			await Deno.remove(dir, {recursive: true});
 
 			// enable traefik routing
 			if (useTraefik) {

@@ -8,8 +8,9 @@ import { Path } from "unyt_node/path.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 
 
-const useTraefik = !Path.File("./notraefik").fs_exists;
-console.log("using traefik: " + useTraefik)
+const notraefik = new Path("./notraefik");
+const useTraefik = !notraefik.fs_exists;
+console.log("using traefik: " + notraefik, useTraefik)
 
 const defaulTraefikToml = `
 [entryPoints]

@@ -306,8 +306,6 @@ enum ContainerStatus {
 			this.addLabel(`traefik.http.routers.${name}-secured.service=${name}`);
 			this.addLabel(`traefik.http.services.${name}.loadbalancer.server.port=${port}`);
 		}
-
-		this.addEnvironmentVariable("UIX_HOST_DOMAINS", host);
 	}
 
 	public static async removeContainer(name: string) {
@@ -581,6 +579,7 @@ enum ContainerStatus {
 				for (const [domain, port] of Object.entries(domains)) {
 					this.enableTraefik(domain, port);
 				}
+				this.addEnvironmentVariable("UIX_HOST_DOMAINS", Object.keys(domains).join(","));
 			}
 			// expose port 80
 			else {

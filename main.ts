@@ -12,6 +12,13 @@ const notraefik = new Path("./notraefik");
 const useTraefik = !notraefik.fs_exists;
 console.log("using traefik: ", useTraefik)
 
+let hostPort = 80;
+const portOverride = new Path("./port");
+if (portOverride.fs_exists && !portOverride.fs_is_dir) {
+	hostPort = Number(await portOverride.getTextContent())
+}
+console.log("using host port: ", hostPort)
+
 const defaulTraefikToml = `
 [entryPoints]
   [entryPoints.web]
@@ -508,7 +515,7 @@ enum ContainerStatus {
 				await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
 
 				const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
-				traefikContainer.exposePort(80, 80)
+				traefikContainer.exposePort(80, hostPort)
 				traefikContainer.exposePort(443, 443)
 				traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
 				traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
@@ -583,7 +590,7 @@ enum ContainerStatus {
 			}
 			// expose port 80
 			else {
-				this.exposePort(80, 80)
+				this.exposePort(80, hostPort)
 			}
 
 			// add persistent volume for datex cache

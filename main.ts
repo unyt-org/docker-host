@@ -293,7 +293,6 @@ enum ContainerStatus {
 		this.addLabel(`traefik.http.routers.${name}.entrypoints=web`);
 		this.addLabel(`traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https`);
 		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
-		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
 		this.addLabel(`traefik.http.routers.${name}-secured.rule=${hostRule}`);
 		this.addLabel(`traefik.http.routers.${name}-secured.tls=true`);
 

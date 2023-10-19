@@ -351,7 +351,7 @@ enum ContainerStatus {
 			const username = "user"; // TODO other usernames?
 			const config_exported = Datex.Runtime.valueToDatexString(this.config, true, true, true);
 	
-			this.image = 'unyt-workbench-' + this.config.endpoint.toString().replaceAll(/[^A-Za-z0-9_-]/,'').toLowerCase();
+			this.image = 'unyt-workbench-' + this.config.endpoint.toString().replace(/[^A-Za-z0-9_-]/g,'').toLowerCase();
 	
 			logger.info("image: " + this.image);
 			logger.info("config: " + config_exported);

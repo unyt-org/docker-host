@@ -175,7 +175,7 @@ enum ContainerStatus {
 
 	protected async handleInit(){
 		try {
-			const restartPolicy = "on-failure"
+			const restartPolicy = "always"
 			await execCommand(`docker run --network=${this.network} -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			console.log(e);

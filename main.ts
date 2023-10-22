@@ -449,6 +449,9 @@ enum ContainerStatus {
 
 	@property args?: string[]
 
+	// use v.0.1
+	isVersion1 = false;
+
 	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {super(owner)}
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
@@ -473,6 +476,10 @@ enum ContainerStatus {
 		this.stage = stage;
 		this.domains = domains ?? {};
 		
+		this.isVersion1 = !! env?.includes("UIX_VERSION=0.1")
+
+		if (this.isVersion1) console.log("using UIX v0.1")
+
 		// inject environment variables
 		for (const envVar of env??[]) {
 			const [key, val] = envVar.split("=");
@@ -563,7 +570,7 @@ enum ContainerStatus {
 
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
-			const dockerfilePath = `${dir}/Dockerfile`;
+			const dockerfilePath = this.isVersion1 ? `${dir}/Dockerfile_v0.1` : `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 
 			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)

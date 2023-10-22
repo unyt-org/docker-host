@@ -570,14 +570,14 @@ enum ContainerStatus {
 
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
-			const dockerfilePath = this.isVersion1 ? `${dir}/Dockerfile_v0.1` : `${dir}/Dockerfile`;
+			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 
 			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// copy dockerfile
-			const dockerfile = await Deno.readTextFile('./res/uix-app-docker/Dockerfile');
+			const dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// create docker container

@@ -456,15 +456,12 @@ enum ContainerStatus {
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
 
-		console.log("git 1",gitURL)
 		// TODO fix: convert https to ssh url
 		// add gh token to URL
 		if (gitHubToken) {
 			if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:');
-			console.log("git 2",gitURL)
 			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
-		console.log("git 3",gitURL)
 
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
@@ -511,7 +508,7 @@ enum ContainerStatus {
 				
 				// init and start traefik container
 				if (!traefikDir.fs_exists)
-								await Deno.mkdir("/etc/traefik/", { recursive: true });
+					await Deno.mkdir("/etc/traefik/", { recursive: true });
 
 				const traefikTomlPath = traefikDir.asDir().getChildPath("traefik.toml");
 				const acmeJsonPath = traefikDir.asDir().getChildPath("acme.json");
@@ -554,9 +551,6 @@ enum ContainerStatus {
 
 		this.image = this.container_name
 
-		// also remove docker container + docker image with same name remove to make sure
-		await Container.removeContainer(this.container_name);
-		await Container.removeImage(this.image);
 
 		try {
 	
@@ -579,6 +573,10 @@ enum ContainerStatus {
 			// copy dockerfile
 			const dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
+
+			// also remove docker container + docker image with same name remove to make sure
+			await Container.removeContainer(this.container_name);
+			await Container.removeImage(this.image);
 
 			// create docker container
 			// TODO: --build-arg uix_args="${this.args?.join(" ")??""}"

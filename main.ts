@@ -623,7 +623,7 @@ enum ContainerStatus {
 		for (const arg of this.args??[]) {
 			if (arg.startsWith("--inspect")) {
 				const port = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
-				dockerfile = dockerfile.replace("{{EXPOSE}}", port)
+				dockerfile = dockerfile.replace("{{EXPOSE}}", "EXPOSE " + port)
 			}
 		}
 

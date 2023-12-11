@@ -571,7 +571,7 @@ enum ContainerStatus {
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// copy dockerfile
-			const dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
+			const dockerfile = await this.getDockerFileContent();
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
 
 			// also remove docker container + docker image with same name remove to make sure
@@ -611,6 +611,23 @@ enum ContainerStatus {
 		}
 
 		return super.handleInit();
+	}
+
+	private async getDockerFileContent() {
+		let dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
+
+		// add uix run args
+		dockerfile = dockerfile.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
+
+		// expose port
+		for (const arg of this.args??[]) {
+			if (arg.startsWith("--inspect")) {
+				const port = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
+				dockerfile = dockerfile.replace("{{EXPOSE}}", port)
+			}
+		}
+
+		return dockerfile;
 	}
 
 

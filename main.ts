@@ -575,7 +575,7 @@ enum ContainerStatus {
 			// set debug port
 			for (const arg of this.args??[]) {
 				if (arg.startsWith("--inspect")) {
-					this.debugPort = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
+					this.debugPort = arg.match(/\:(\d+)$/)?.[1] ?? "0.0.0.0:9229";
 				}
 			}
 

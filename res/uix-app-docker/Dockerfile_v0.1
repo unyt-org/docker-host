@@ -12,6 +12,6 @@ WORKDIR /app
 COPY ./repo .
 
 EXPOSE 80
-{{EXPOSE}}
+{{EXPOSE_DEBUG}}
 
 CMD sh -c "rm -f deno.lock; rm -f ./src/deno.lock; deno run --importmap https://dev.cdn.unyt.org/uix1/importmap.dev.json -Aqr https://dev.cdn.unyt.org/uix1/run.ts --port 80 --stage $APP_STAGE --cache-path /datex-cache {{UIX_ARGS}}"

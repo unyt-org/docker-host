@@ -78,6 +78,8 @@ enum ContainerStatus {
 	#env: Record<string,string> = {}
 	#volumes: Record<string,string> = {}
 
+	debugPort: string|null = null
+
 	get volumes() {return this.#volumes}
 
 	addLabel(label: string) {
@@ -176,7 +178,7 @@ enum ContainerStatus {
 	protected async handleInit(){
 		try {
 			const restartPolicy = "always"
-			await execCommand(`docker run --network=${this.network} -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
+			await execCommand(`docker run --network=${this.network}${this.debugPort ? ` -p ${this.debugPort}:9229`:''} -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
 		} catch (e) {
 			console.log(e);
 			this.logger.error("error while creating container");
@@ -570,6 +572,13 @@ enum ContainerStatus {
 			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
+			// set debug port
+			for (const arg of this.args??[]) {
+				if (arg.startsWith("--inspect")) {
+					this.debugPort = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
+				}
+			}
+
 			// copy dockerfile
 			const dockerfile = await this.getDockerFileContent();
 			await Deno.writeTextFile(dockerfilePath, dockerfile);
@@ -613,6 +622,7 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
+
 	private async getDockerFileContent() {
 		let dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
 
@@ -620,13 +630,9 @@ enum ContainerStatus {
 		dockerfile = dockerfile.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
 
 		// expose port
-		for (const arg of this.args??[]) {
-			if (arg.startsWith("--inspect")) {
-				const port = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
-				dockerfile = dockerfile.replace("{{EXPOSE}}", "EXPOSE " + port)
-			}
+		if (this.debugPort) {
+			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "EXPOSE 9229")
 		}
-
 		return dockerfile;
 	}
 

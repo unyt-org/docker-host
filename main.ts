@@ -609,6 +609,9 @@ enum ContainerStatus {
 			// add persistent volume for datex cache
 			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'datex-cache'), '/datex-cache')
 
+			// add persistent volume for deno localStoragae
+			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'localstorage'), '/deno-dir/location_data')
+
 			// // add volume for host data, available in /app/hostdata
 			// this.addVolumePath('/root/data', '/app/hostdata')
 		}

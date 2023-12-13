@@ -640,7 +640,7 @@ enum ContainerStatus {
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "EXPOSE 9229")
 		}
 		else {
-			dockerfile.replace("{{EXPOSE_DEBUG}}", "")
+			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "")
 		}
 		return dockerfile;
 	}

@@ -639,6 +639,9 @@ enum ContainerStatus {
 		if (this.debugPort) {
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "EXPOSE 9229")
 		}
+		else {
+			dockerfile.replace("{{EXPOSE_DEBUG}}", "")
+		}
 		return dockerfile;
 	}
 

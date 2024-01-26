@@ -249,10 +249,10 @@ enum ContainerStatus {
 
 	/**
 	 * Get a stream of the container logs
-	 * @param timeout timeout in seconds after which the stream will be closed
+	 * @param timeout timeout in minutes after which the stream will be closed
 	 * @returns 
 	 */
-	@property public getLogs(timeout = 60 * 60) {
+	@property public getLogs(timeout = 6) {
 		const p = Deno.run({
 			cmd: ['docker', 'logs', '--follow', this.container_name],
 			stdout: 'piped', 
@@ -264,10 +264,10 @@ enum ContainerStatus {
 
 		// close stream after timeout
 		setTimeout(() => {
-			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " seconds]").buffer);
+			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " minutes]\n").buffer);
 			stream.close();
 			p.close();
-		}, 60 * 1000)// timeout * 1000);
+		}, 40 * 1000)// timeout * 60 * 1000);
 
 		return stream;
 	}

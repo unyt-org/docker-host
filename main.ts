@@ -446,7 +446,8 @@ enum ContainerStatus {
 @sync('UIXAppContainer') class UIXAppContainer extends Container {
 
 	@property branch?:string
-	@property gitURL!:string
+	@property gitSSH!:string
+	@property gitHTTPS!:string
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
@@ -460,17 +461,25 @@ enum ContainerStatus {
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
 
-		// TODO fix: convert https to ssh url
+		// convert from https github url
+		if (gitURL.startsWith("https://")) {
+			this.gitHTTPS = gitURL;
+			this.gitSSH = gitURL.replace('https://github.com/', 'git@github.com:');
+		}
+		// convert from ssh github url
+		else if (gitURL.startsWith("git@github.com")) {
+			this.gitSSH = gitURL;
+			this.gitHTTPS = gitURL.replace('git@github.com:','https://github.com/');
+		}
+
 		// add gh token to URL
 		if (gitHubToken) {
-			if (gitURL.startsWith("https://")) gitURL = gitURL.replace('https://github.com/', 'git@github.com:');
-			gitURL = gitURL.replace("git@github.com:", "https://oauth2:"+gitHubToken+"@github.com/")
+			this.gitHTTPS = this.gitHTTPS.replace("https://github.com/", "https://oauth2:"+gitHubToken+"@github.com/")
 		}
 
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
-		this.gitURL = gitURL;
 		this.args = args;
 		
 		this.branch = branch;
@@ -545,7 +554,7 @@ enum ContainerStatus {
 
 		// remove any existing previous container
 		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer, properties: {
-			gitURL: this.gitURL,
+			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}})
 		for (const existingContainer of existingContainers) {
@@ -561,44 +570,60 @@ enum ContainerStatus {
 			const domains = this.domains ?? [Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","")];
 
 			this.logger.info("image: " + this.image);
-			this.logger.info("repo: " + this.gitURL);
+			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);
 			this.logger.info("branch: " + this.branch);
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
-			const orgName = this.gitURL.replaceAll(':','/').split('/').at(-2);
-			const repoName = this.gitURL.replaceAll(':','/').split('/').pop()!.replace('.git', '');
+			const orgName = this.gitHTTPS.split('/').at(-2);
+			const repoName = this.gitHTTPS.split('/').pop()!.replace('.git', '');
 
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
-
+			let repoIsPublic = false
 			try {
-				await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
+				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${orgName}/${repoName}`)).json()).visibility == "public"
 			}
-			catch (e) {
-				let sshKey: string|undefined;
+			catch {}
+
+			console.log(`repo ${orgName}/${repoName} is public: ${repoIsPublic}`)
+
+			// try clone with https first
+			try {
+				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
+			}
+
+			catch {
+				// try clone with ssh
 				try {
-					sshKey = await this.tryGetSSHKey();
-					console.log("ssh key: " + sshKey)
+					await execCommand(`git clone --recurse-submodules ${this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
-					console.log("Failed to generate ssh key: ", e)
+					let sshKey: string|undefined;
+					try {
+						sshKey = await this.tryGetSSHKey();
+						console.log("ssh public key: " + sshKey)
+					}
+					catch (e) {
+						console.log("Failed to generate ssh key: ", e)
+					}
+					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
+					let opt = 1;
+					const appendOption = (option: string) => {
+						errorMessage += `${opt++}. ${option}\n`
+					}
+					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (https://github.com/${orgName}/${repoName}/settings)`);
+					if (this.gitHTTPS.startsWith("https://github.com/")) {
+						appendOption(`Pass a GitHub access token with --gh-token=<token> (Generate at https://github.com/settings/personal-access-tokens/new)`)
+					}
+					if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
+					this.errorMessage = errorMessage;
+					throw e;
 				}
-				let errorMessage = `Could not clone git repository ${this.gitURL}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
-				let opt = 1;
-				const appendOption = (option: string) => {
-					errorMessage += `${opt++}. ${option}\n`
-				}
-				appendOption(`Make the repository publicly accessible`);
-				if (this.gitURL.includes('@github.com')) {
-					appendOption(`Pass a GitHub access token with --gh-token=<token>`)
-				}
-				if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
-				this.errorMessage = errorMessage;
-				throw e;
 			}
+
 
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 

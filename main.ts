@@ -585,6 +585,7 @@ enum ContainerStatus {
 					errorMessage += `3. Pass a GitHub access token with --gh-token=<token>\n`
 				}
 				this.errorMessage = errorMessage;
+				await sleep(1000);
 				throw e;
 			}
 

@@ -72,6 +72,7 @@ enum ContainerStatus {
 
 	@property owner!: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
+	@property errorMessage?: string
 
 	#labels: string[] = []
 	#ports: [number, number][] = []
@@ -569,7 +570,15 @@ enum ContainerStatus {
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 
-			await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
+			try {
+				await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
+			}
+			catch (e) {
+				console.log("git errorr",e);
+				this.errorMessage = "Could not clone git repo"
+				throw new Error("Could not clone git repo");
+			}
+
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// set debug port

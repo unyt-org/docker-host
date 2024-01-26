@@ -592,10 +592,10 @@ enum ContainerStatus {
 					errorMessage += `${opt++}. ${option}\n`
 				}
 				appendOption(`Make the repository publicly accessible`);
-				if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n   ${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 				if (this.gitURL.includes('@github.com')) {
 					appendOption(`Pass a GitHub access token with --gh-token=<token>`)
 				}
+				if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 				this.errorMessage = errorMessage;
 				throw e;
 			}

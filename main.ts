@@ -247,7 +247,12 @@ enum ContainerStatus {
 		return true;
 	}
 
-	@property public getLogs() {
+	/**
+	 * Get a stream of the container logs
+	 * @param timeout timeout in seconds after which the stream will be closed
+	 * @returns 
+	 */
+	@property public getLogs(timeout = 60 * 60) {
 		const p = Deno.run({
 			cmd: ['docker', 'logs', '--follow', this.container_name],
 			stdout: 'piped', 
@@ -256,6 +261,14 @@ enum ContainerStatus {
 		const stream = $$(new Datex.Stream());
 		stream.pipe(p.stdout.readable);
 		stream.pipe(p.stderr.readable);
+
+		// close stream after timeout
+		setTimeout(() => {
+			stream.write("[Stream closed after " + timeout + " seconds]")
+			stream.close();
+			p.close();
+		}, 30)// timeout * 1000);
+
 		return stream;
 	}
 

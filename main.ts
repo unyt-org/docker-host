@@ -6,6 +6,7 @@ import { Class } from "unyt_core/utils/global_types.ts";
 import { Path } from "unyt_node/path.ts";
 
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
+import { ESCAPE_SEQUENCES, Logger } from "unyt_core/utils/logger.ts";
 
 
 const notraefik = new Path("./notraefik");
@@ -565,7 +566,7 @@ enum ContainerStatus {
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
-			const orgName = this.gitURL.replaceAll(':','/').split('/')[this.gitURL.split('/').length-2];
+			const orgName = this.gitURL.replaceAll(':','/').split('/').at(-2);
 			const repoName = this.gitURL.replaceAll(':','/').split('/').pop()!.replace('.git', '');
 
 			// clone repo
@@ -591,10 +592,9 @@ enum ContainerStatus {
 					errorMessage += `${opt++}. ${option}\n`
 				}
 				appendOption(`Make the repository publicly accessible`);
-				if (sshKey) appendOption(`Add the following SSH key to your repository: ${sshKey}`);
+				if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n   ${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 				if (this.gitURL.includes('@github.com')) {
-					errorMessage += `   (GitHub: https://github.com/${orgName}/${repoName}/settings/keys/new)\n`
-					appendOption(`3. Pass a GitHub access token with --gh-token=<token>`)
+					appendOption(`Pass a GitHub access token with --gh-token=<token>`)
 				}
 				this.errorMessage = errorMessage;
 				throw e;
@@ -669,7 +669,7 @@ enum ContainerStatus {
 		}
 		// generate new key
 		catch {
-			await execCommand(`ssh-keygen -t rsa -b 4096 -N "" -C "unyt docker host endpoint ${Datex.Runtime.endpoint.main}" -f ${keyPath}`)
+			await execCommand(`ssh-keygen -t rsa -b 4096 -N "" -C "${Datex.Runtime.endpoint.main}" -f ${keyPath}`)
 			// add to ssh/config
 			await Deno.writeTextFile("~${homeDir}/.ssh/config", `
 Host github.com (${Datex.Runtime.endpoint.main})

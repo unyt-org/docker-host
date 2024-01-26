@@ -565,8 +565,8 @@ enum ContainerStatus {
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
-			const orgName = this.gitURL.split('/')[this.gitURL.split('/').length-2];
-			const repoName = this.gitURL.split('/').pop()!.replace('.git', '');
+			const orgName = this.gitURL.replaceAll(':','/').split('/')[this.gitURL.split('/').length-2];
+			const repoName = this.gitURL.replaceAll(':','/').split('/').pop()!.replace('.git', '');
 
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
@@ -660,7 +660,7 @@ enum ContainerStatus {
 
 	private async tryGetSSHKey() {
 		
-  		const keyPath = `~/.ssh/id_rsa_${this.endpoint.name.replaceAll('-','_')}`;
+  		const keyPath = `~/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
 
 		// return public key if already exists
 		try {
@@ -668,10 +668,10 @@ enum ContainerStatus {
 		}
 		// generate new key
 		catch {
-			await execCommand(`ssh-keygen -t rsa -b 4096 -C "unyt docker host endpoint ${this.endpoint}" -f ${keyPath}`)
+			await execCommand(`ssh-keygen -t rsa -b 4096 -N "" -C "unyt docker host endpoint ${Datex.Runtime.endpoint.main}" -f ${keyPath}`)
 			// add to ssh/config
 			await Deno.writeTextFile("~/.ssh/config", `
-Host github.com (${this.endpoint.name})
+Host github.com (${Datex.Runtime.endpoint.main})
 	User git
 	Hostname github.com
 	IdentityFile ${keyPath}

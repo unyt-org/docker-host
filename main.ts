@@ -565,6 +565,9 @@ enum ContainerStatus {
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
+			const orgName = this.gitURL.split('/')[this.gitURL.split('/').length-2];
+			const repoName = this.gitURL.split('/').pop()!.replace('.git', '');
+
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
@@ -574,9 +577,15 @@ enum ContainerStatus {
 				await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
 			}
 			catch (e) {
-				console.log("git errorr",e);
-				this.errorMessage = "Could not clone git repo"
-				throw new Error("Could not clone git repo");
+				let errorMessage = `Could not clone git repository ${this.gitURL}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
+				errorMessage += `1. Make the repository publicly accessible\n`
+				errorMessage += `2. Add the following SSH key to your repository: ${await Deno.readTextFile("/root/.ssh/id_rsa")}\n`
+				if (this.gitURL.includes('@github.com')) {
+					errorMessage += `   (GitHub: https://github.com/${orgName}/${repoName}/settings/keys/new)\n`
+					errorMessage += `3. Pass a GitHub access token with --gh-token=<token>\n`
+				}
+				this.errorMessage = errorMessage;
+				throw e;
 			}
 
 			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)

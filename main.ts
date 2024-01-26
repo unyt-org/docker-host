@@ -659,8 +659,9 @@ enum ContainerStatus {
 	}
 
 	private async tryGetSSHKey() {
-		
-  		const keyPath = `~/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
+		const homeDir = Deno.env.get("HOME");
+		if (!homeDir) throw new Error("Could not get home directory"
+  		const keyPath = `${homeDir}/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
 
 		// return public key if already exists
 		try {
@@ -670,7 +671,7 @@ enum ContainerStatus {
 		catch {
 			await execCommand(`ssh-keygen -t rsa -b 4096 -N "" -C "unyt docker host endpoint ${Datex.Runtime.endpoint.main}" -f ${keyPath}`)
 			// add to ssh/config
-			await Deno.writeTextFile("~/.ssh/config", `
+			await Deno.writeTextFile("~${homeDir}/.ssh/config", `
 Host github.com (${Datex.Runtime.endpoint.main})
 	User git
 	Hostname github.com

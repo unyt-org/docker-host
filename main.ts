@@ -267,7 +267,7 @@ enum ContainerStatus {
 			stream.write(new TextEncoder().encode("\n[Stream closed after " + timeout + " seconds]").buffer);
 			stream.close();
 			p.close();
-		}, 30 * 1000)// timeout * 1000);
+		}, 60 * 1000)// timeout * 1000);
 
 		return stream;
 	}

@@ -660,7 +660,7 @@ enum ContainerStatus {
 
 	private async tryGetSSHKey() {
 		const homeDir = Deno.env.get("HOME");
-		if (!homeDir) throw new Error("Could not get home directory"
+		if (!homeDir) throw new Error("Could not get home directory");
   		const keyPath = `${homeDir}/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
 
 		// return public key if already exists

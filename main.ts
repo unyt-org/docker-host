@@ -264,10 +264,10 @@ enum ContainerStatus {
 
 		// close stream after timeout
 		setTimeout(() => {
-			stream.write("[Stream closed after " + timeout + " seconds]")
+			stream.write(new TextEncoder().encode("\n[Stream closed after " + timeout + " seconds]");
 			stream.close();
 			p.close();
-		}, 30)// timeout * 1000);
+		}, 30 * 1000)// timeout * 1000);
 
 		return stream;
 	}

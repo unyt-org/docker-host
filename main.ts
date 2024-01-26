@@ -577,15 +577,26 @@ enum ContainerStatus {
 				await execCommand(`git clone --recurse-submodules ${this.gitURL} ${repoPath}`, true)
 			}
 			catch (e) {
+				let sshKey: string|undefined;
+				try {
+					sshKey = await this.tryGetSSHKey();
+					console.log("ssh key: " + sshKey)
+				}
+				catch (e) {
+					console.log("Failed to generate ssh key: ", e)
+				}
 				let errorMessage = `Could not clone git repository ${this.gitURL}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
-				errorMessage += `1. Make the repository publicly accessible\n`
-				errorMessage += `2. Add the following SSH key to your repository: ${await Deno.readTextFile("/root/.ssh/id_rsa")}\n`
+				let opt = 1;
+				const appendOption = (option: string) => {
+					errorMessage += `${opt++}. ${option}\n`
+				}
+				appendOption(`Make the repository publicly accessible`);
+				if (sshKey) appendOption(`Add the following SSH key to your repository: ${sshKey}`);
 				if (this.gitURL.includes('@github.com')) {
 					errorMessage += `   (GitHub: https://github.com/${orgName}/${repoName}/settings/keys/new)\n`
-					errorMessage += `3. Pass a GitHub access token with --gh-token=<token>\n`
+					appendOption(`3. Pass a GitHub access token with --gh-token=<token>`)
 				}
 				this.errorMessage = errorMessage;
-				await sleep(1000);
 				throw e;
 			}
 
@@ -647,6 +658,30 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
+	private async tryGetSSHKey() {
+		
+  		const keyPath = `~/.ssh/id_rsa_${this.endpoint.name.replaceAll('-','_')}`;
+
+		// return public key if already exists
+		try {
+			return await Deno.readTextFile(keyPath+".pub");
+		}
+		// generate new key
+		catch {
+			await execCommand(`ssh-keygen -t rsa -b 4096 -C "unyt docker host endpoint ${this.endpoint}" -f ${keyPath}`)
+			// add to ssh/config
+			await Deno.writeTextFile("~/.ssh/config", `
+Host github.com (${this.endpoint.name})
+	User git
+	Hostname github.com
+	IdentityFile ${keyPath}
+			`)
+			// return public key
+			return await Deno.readTextFile(keyPath+".pub");
+		}
+
+		
+	}
 
 	private async getDockerFileContent() {
 		let dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');

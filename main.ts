@@ -714,7 +714,7 @@ enum ContainerStatus {
 		catch {
 			await execCommand(`ssh-keygen -t rsa -b 4096 -N '' -C '${Datex.Runtime.endpoint.main}' -f ${keyPath}`)
 			// add to ssh/config
-			await Deno.writeTextFile("~${homeDir}/.ssh/config", `
+			await Deno.writeTextFile("${homeDir}/.ssh/config", `
 Host github.com (${Datex.Runtime.endpoint.main})
 	User git
 	Hostname github.com

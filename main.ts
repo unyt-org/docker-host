@@ -252,7 +252,7 @@ enum ContainerStatus {
 	 * @param timeout timeout in minutes after which the stream will be closed
 	 * @returns 
 	 */
-	@property public getLogs(timeout = 6) {
+	@property public getLogs(timeout = 60) {
 		const p = Deno.run({
 			cmd: ['docker', 'logs', '--follow', this.container_name],
 			stdout: 'piped', 
@@ -268,7 +268,7 @@ enum ContainerStatus {
 			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " minutes]\n\u0004").buffer);
 			stream.close();
 			p.close();
-		}, 40 * 1000)// timeout * 60 * 1000);
+		}, timeout * 60 * 1000);
 
 		return stream;
 	}
@@ -725,7 +725,7 @@ Host github.com (${Datex.Runtime.endpoint.main})
 	User git
 	Hostname github.com
 	IdentityFile ${keyPath}
-			`)
+`)
 			// return public key
 			return await Deno.readTextFile(keyPath+".pub");
 		}

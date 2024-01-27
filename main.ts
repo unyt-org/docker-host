@@ -613,7 +613,7 @@ enum ContainerStatus {
 
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.includes("oauth2:")) {
-					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed. Please make sure the GitHub access token is valid and has read access to the repository.`;
+					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the GitHub access token is valid and has read access to the repository.`;
 					throw e;
 				}
 

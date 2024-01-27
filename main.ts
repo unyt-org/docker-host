@@ -199,6 +199,8 @@ enum ContainerStatus {
 
 		await this.onBeforeStart();
 
+		if (this.status == ContainerStatus.FAILED) return false;
+
 		// STARTING ...
 		this.status = ContainerStatus.STARTING;
 
@@ -586,7 +588,6 @@ enum ContainerStatus {
 						this.logger.error("Error setting DNS entry for " + domain);
 						this.errorMessage = `Could not set DNS entry for ${domain} (Internal error)`;
 						this.status = ContainerStatus.FAILED;
-						throw new Error(this.errorMessage);
 					}
 				}
 			}

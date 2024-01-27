@@ -626,16 +626,17 @@ enum ContainerStatus {
 					sshKey = await this.tryGetSSHKey();
 					console.log("ssh public key: " + sshKey)
 				}
-
+				catch (e) {
+					console.log("Failed to generate ssh key: ", e)
+				}
+				
 				// try clone with ssh
 				try {
 					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace('github.com', this.uniqueGithubHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
 					
-					catch (e) {
-						console.log("Failed to generate ssh key: ", e)
-					}
+					
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
 					let opt = 1;
 					const appendOption = (option: string) => {

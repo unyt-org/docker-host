@@ -264,7 +264,8 @@ enum ContainerStatus {
 
 		// close stream after timeout
 		setTimeout(() => {
-			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " minutes]\n").buffer);
+			// \u0004 is the EOT character
+			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " minutes]\n\u0004").buffer);
 			stream.close();
 			p.close();
 		}, 40 * 1000)// timeout * 60 * 1000);

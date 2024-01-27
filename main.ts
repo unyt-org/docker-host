@@ -1,24 +1,18 @@
 import { OutputMode, exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
 
 import { EndpointConfig } from "./endpoint-config.ts";
-import { Datex, constructor, expose, meta, property, replicator,default_property, scope, sync, label } from "unyt_core";
+import { Datex, constructor, expose, property, replicator,default_property, scope, sync } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
 import { Path } from "unyt_node/path.ts";
 
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
-import { ESCAPE_SEQUENCES, Logger } from "unyt_core/utils/logger.ts";
+import { ESCAPE_SEQUENCES } from "unyt_core/utils/logger.ts";
+import { config } from "./config.ts";
 
+import { getIP } from "https://deno.land/x/get_ip/mod.ts";
 
-const notraefik = new Path("./notraefik");
-const useTraefik = !notraefik.fs_exists;
-console.log("using traefik: ", useTraefik)
+const publicServerIP = await getIP({ipv6: false});
 
-let hostPort = 80;
-const portOverride = new Path("./port");
-if (portOverride.fs_exists && !portOverride.fs_is_dir) {
-	hostPort = Number(await portOverride.getTextContent())
-}
-console.log("using host port: ", hostPort)
 
 const defaulTraefikToml = `
 [entryPoints]
@@ -43,7 +37,9 @@ const defaulTraefikToml = `
     entrypoint = "web"
 `
 
-const logger = new Datex.Logger("container manager");
+const logger = new Datex.Logger("docker host");
+
+logger.info("Config: ", config);
 
 await Datex.Supranet.connect();
 
@@ -201,6 +197,8 @@ enum ContainerStatus {
 
 		this.logger.info("Starting Container " + this.container_name);
 
+		await this.onBeforeStart();
+
 		// STARTING ...
 		this.status = ContainerStatus.STARTING;
 
@@ -227,12 +225,17 @@ enum ContainerStatus {
 		return true;
 	}
 
+	protected onBeforeStart() {}
+	protected onBeforeStop() {}
+
 	protected async handleOnline() {
 		return false;
 	}
 
 	@property async stop(force = true){
 		this.logger.info("Stopping Container " + this.container_name);
+
+		this.onBeforeStop();
 
 		this.status = ContainerStatus.STOPPING;
 		try {
@@ -499,6 +502,17 @@ enum ContainerStatus {
 		this.branch = branch;
 		this.stage = stage;
 		this.domains = domains ?? {};
+
+		// check if only unyt.app domains are used
+		if (!config.allowArbitraryDomains) {
+			for (const domain of Object.keys(this.domains)) {
+				if (!domain.endsWith('.unyt.app')) {
+					this.errorMessage = `Invalid domain "${domain}". Only unyt.app domains are allowed`;
+					this.status = ContainerStatus.FAILED;
+					throw new Error(this.errorMessage);
+				}
+			}
+		}
 		
 		this.isVersion1 = !! env?.includes("UIX_VERSION=0.1")
 
@@ -523,7 +537,7 @@ enum ContainerStatus {
 		// make sure main network exists
 		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
 		
-		if (useTraefik) {
+		if (config.enableTraefik) {
 			// has traefik?
 			try {
 				await execCommand(`docker container ls | grep traefik`)
@@ -545,7 +559,7 @@ enum ContainerStatus {
 				await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
 
 				const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
-				traefikContainer.exposePort(80, hostPort)
+				traefikContainer.exposePort(80, config.hostPort)
 				traefikContainer.exposePort(443, 443)
 				traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
 				traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
@@ -556,8 +570,47 @@ enum ContainerStatus {
 				// this.exposePort(80, 80);
 			}
 		}
-		
-	
+	}
+
+	protected override async onBeforeStart() {
+		if (config.setDNSEntries) {
+			for (const domain of Object.keys(this.domains)) {
+				// currently only for unyt.app
+				if (domain.endsWith('.unyt.app')) {
+					this.logger.info("Setting DNS entry for " + domain + " to " + publicServerIP);
+					try {
+						await datex `@+unyt-dns-1.DNSManager.addARecord(${domain}, ${publicServerIP})`
+						this.logger.success("Successfully set DNS entry for " + domain);
+					}
+					catch (e) {
+						this.logger.error("Error setting DNS entry for " + domain);
+						this.errorMessage = `Could not set DNS entry for ${domain} (Internal error)`;
+						this.status = ContainerStatus.FAILED;
+						throw new Error(this.errorMessage);
+					}
+				}
+			}
+
+		}
+	}
+
+	protected override async onBeforeStop() {
+		if (config.setDNSEntries) {
+			for (const domain of Object.keys(this.domains)) {
+				// currently only for unyt.app
+				if (domain.endsWith('.unyt.app')) {
+					this.logger.info("Removing DNS entry for " + domain);
+					try {
+						await datex `@+unyt-dns-1.DNSManager.removeARecord(${domain})`
+						this.logger.success("Successfully removed DNS entry for " + domain);
+					}
+					catch (e) {
+						this.logger.error("Error removing DNS entry for " + domain);
+						console.error(e)
+					}
+				}
+			}
+		}
 	}
 
 	get orgName() {
@@ -629,7 +682,7 @@ enum ContainerStatus {
 				catch (e) {
 					console.log("Failed to generate ssh key: ", e)
 				}
-				
+
 				// try clone with ssh
 				try {
 					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace('github.com', this.uniqueGithubHostName) : this.gitSSH} ${repoPath}`, true)
@@ -681,7 +734,7 @@ enum ContainerStatus {
 			await Deno.remove(dir, {recursive: true});
 
 			// enable traefik routing
-			if (useTraefik) {
+			if (config.enableTraefik) {
 				for (const [domain, port] of Object.entries(domains)) {
 					this.enableTraefik(domain, port);
 				}
@@ -689,7 +742,7 @@ enum ContainerStatus {
 			}
 			// expose port 80
 			else {
-				this.exposePort(80, hostPort)
+				this.exposePort(80, config.hostPort)
 			}
 
 			// add persistent volume for datex cache

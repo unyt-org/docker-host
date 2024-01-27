@@ -1,4 +1,5 @@
 # Docker Host
+
 Creates and manages docker containers (e.g. UIX Apps).
 Containers can be created via a DATEX interface.
 
@@ -45,6 +46,8 @@ print container.status // current container status
 
 ## Create a new Workbench (Development) Container
 ```datex
-container = @+unyt.container_manager :: createWorkbenchContainer();
+use ContainerManager from @+YOUR_DOCKER_HOST;
+
+container = ContainerManager.createWorkbenchContainer();
 container.start()
 ```

@@ -611,9 +611,9 @@ enum ContainerStatus {
 
 			catch (e) {
 
+				console.log(">>>",this.gitHTTPS.includes("oauth2:"),e,e?.toString());
 				// was github token error
 				if (this.gitHTTPS.includes("oauth2:") && e?.toString().includes("Authentication failed")) {
-					console.log(e,e?.toString());
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed. Please make sure the GitHub access token is valid and has read access to the repository.`;
 					throw e;
 				}

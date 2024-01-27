@@ -609,7 +609,15 @@ enum ContainerStatus {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 
-			catch {
+			catch (e) {
+
+				// was github token error
+				if (this.gitHTTPS.includes("oauth2:") && e?.toString().includes("Authentication failed")) {
+					console.log(e,e?.toString());
+					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed. Please make sure the GitHub access token is valid and has read access to the repository.`;
+					throw e;
+				}
+
 				// try clone with ssh
 				try {
 					await execCommand(`git clone --recurse-submodules ${this.gitSSH} ${repoPath}`, true)

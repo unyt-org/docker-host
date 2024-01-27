@@ -736,7 +736,7 @@ enum ContainerStatus {
 			catch {}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
 
-Host github.com (${Datex.Runtime.endpoint.main})
+Host github.com (${Datex.Runtime.endpoint.main}:${this.orgName}/${this.repoName})
 	User git
 	Hostname github.com
 	IdentityFile ${keyPath}

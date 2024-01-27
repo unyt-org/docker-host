@@ -704,7 +704,7 @@ enum ContainerStatus {
 	}
 
 	private async tryGetSSHKey() {
-
+		const homeDir = Deno.env.get("HOME");
   		const keyPath = this.sshKeyPath;
 		// return public key if already exists
 		try {
@@ -720,7 +720,7 @@ enum ContainerStatus {
 			}
 			catch {}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
-			
+
 Host github.com (${Datex.Runtime.endpoint.main})
 	User git
 	Hostname github.com

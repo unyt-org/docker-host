@@ -620,17 +620,19 @@ enum ContainerStatus {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the GitHub access token is valid and has read access to the repository.`;
 					throw e;
 				}
+				
+				let sshKey: string|undefined;
+				try {
+					sshKey = await this.tryGetSSHKey();
+					console.log("ssh public key: " + sshKey)
+				}
 
 				// try clone with ssh
 				try {
-					await execCommand(`git clone --recurse-submodules ${this.gitSSH} ${repoPath}`, true)
+					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace('github.com', this.uniqueGithubHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
-					let sshKey: string|undefined;
-					try {
-						sshKey = await this.tryGetSSHKey();
-						console.log("ssh public key: " + sshKey)
-					}
+					
 					catch (e) {
 						console.log("Failed to generate ssh key: ", e)
 					}
@@ -708,14 +710,20 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
+	private get sshKeyName() {
+		return Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','') +
+			'_' + this.orgName?.replaceAll('-','_') +
+			'_' + this.repoName?.replaceAll('-','_')
+	}
+
 	private get sshKeyPath() {
 		const homeDir = Deno.env.get("HOME");
 		if (!homeDir) throw new Error("Could not get home directory");
-  		return `${homeDir}/.ssh/id_rsa_${
-			Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','') +
-			'_' + this.orgName?.replaceAll('-','_') +
-			'_' + this.repoName?.replaceAll('-','_')
-		}`;
+  		return `${homeDir}/.ssh/id_rsa_${this.sshKeyName}`;
+	}
+
+	private get uniqueGithubHostName() {
+		return `github.com_${this.sshKeyName}`;
 	}
 
 	private async tryGetSSHKey() {
@@ -736,7 +744,7 @@ enum ContainerStatus {
 			catch {}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
 
-Host github.com (${Datex.Runtime.endpoint.main}:${this.orgName}/${this.repoName})
+Host ${this.uniqueGithubHostName}
 	User git
 	Hostname github.com
 	IdentityFile ${keyPath}

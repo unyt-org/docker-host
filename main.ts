@@ -697,11 +697,15 @@ enum ContainerStatus {
 		return super.handleInit();
 	}
 
-	private async tryGetSSHKey() {
+	private get sshKeyPath() {
 		const homeDir = Deno.env.get("HOME");
 		if (!homeDir) throw new Error("Could not get home directory");
-  		const keyPath = `${homeDir}/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
+  		return `${homeDir}/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
+	}
 
+	private async tryGetSSHKey() {
+
+  		const keyPath = this.sshKeyPath;
 		// return public key if already exists
 		try {
 			return await Deno.readTextFile(keyPath+".pub");

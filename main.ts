@@ -560,6 +560,13 @@ enum ContainerStatus {
 	
 	}
 
+	get orgName() {
+		return this.gitHTTPS.split('/').at(-2);
+	}
+	get repoName() {
+		return this.gitHTTPS.split('/').pop()!.replace('.git', '');
+	}
+
 	// custom workbench container init
 	override async handleInit(){
 
@@ -589,20 +596,17 @@ enum ContainerStatus {
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
 
-			const orgName = this.gitHTTPS.split('/').at(-2);
-			const repoName = this.gitHTTPS.split('/').pop()!.replace('.git', '');
-
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 			let repoIsPublic = false
 			try {
-				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${orgName}/${repoName}`)).json()).visibility == "public"
+				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
 			}
 			catch {}
 
-			console.log(`repo ${orgName}/${repoName} is public: ${repoIsPublic}`)
+			console.log(`repo ${this.orgName}/${this.repoName} is public: ${repoIsPublic}`)
 
 			// try clone with https first
 			try {
@@ -635,11 +639,11 @@ enum ContainerStatus {
 					const appendOption = (option: string) => {
 						errorMessage += `${opt++}. ${option}\n`
 					}
-					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (https://github.com/${orgName}/${repoName}/settings)`);
+					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (https://github.com/${this.orgName}/${this.repoName}/settings)`);
 					if (this.gitHTTPS.startsWith("https://github.com/")) {
 						appendOption(`Pass a GitHub access token with --gh-token=<token> (Generate at https://github.com/settings/personal-access-tokens/new)`)
 					}
-					if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${orgName}/${repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
+					if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${this.orgName}/${this.repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 					this.errorMessage = errorMessage;
 					throw e;
 				}
@@ -707,7 +711,11 @@ enum ContainerStatus {
 	private get sshKeyPath() {
 		const homeDir = Deno.env.get("HOME");
 		if (!homeDir) throw new Error("Could not get home directory");
-  		return `${homeDir}/.ssh/id_rsa_${Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','')}`;
+  		return `${homeDir}/.ssh/id_rsa_${
+			Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','') +
+			'_' + this.orgName?.replaceAll('-','_') +
+			'_' + this.repoName?.replaceAll('-','_')
+		}`;
 	}
 
 	private async tryGetSSHKey() {

@@ -3,13 +3,13 @@ import { OutputMode, exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
 import { EndpointConfig } from "./endpoint-config.ts";
 import { Datex, constructor, expose, property, replicator,default_property, scope, sync } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
-import { Path } from "unyt_node/path.ts";
 
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 import { ESCAPE_SEQUENCES } from "unyt_core/utils/logger.ts";
 import { config } from "./config.ts";
 
 import { getIP } from "https://deno.land/x/get_ip/mod.ts";
+import { Path } from "unyt_core/utils/path.ts";
 
 const publicServerIP = await getIP({ipv6: false});
 
@@ -466,7 +466,7 @@ enum ContainerStatus {
 
 	@property branch?:string
 	@property gitSSH!:string
-	@property gitHTTPS!:string
+	@property gitHTTPS!:URL
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
@@ -479,7 +479,7 @@ enum ContainerStatus {
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
 	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
+	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string) {
 		this.construct(owner)
 
 		// validate domains
@@ -491,20 +491,24 @@ enum ContainerStatus {
 			}
 		}
 
-		// convert from https github url
+		// convert from https url
 		if (gitURL.startsWith("https://")) {
-			this.gitHTTPS = gitURL;
-			this.gitSSH = gitURL.replace('https://github.com/', 'git@github.com:');
+			this.gitHTTPS = new URL(gitURL);
+			this.gitSSH = `git@${this.gitHTTPS.host}:${this.gitHTTPS.pathname}`;
 		}
-		// convert from ssh github url
-		else if (gitURL.startsWith("git@github.com")) {
+		// convert from ssh url
+		else if (gitURL.startsWith("git@")) {
+			const [host, pathname] = gitURL.match(/git@([^:]*)+?:(.*)/i)?.slice(1) ?? [];
+			if (!host || !pathname)
+				throw new Error(`Invalid git URL '${gitURL}'!`);
 			this.gitSSH = gitURL;
-			this.gitHTTPS = gitURL.replace('git@github.com:','https://github.com/');
+			this.gitHTTPS = `git@${host}:${pathname}`;
 		}
 
 		// add gh token to URL
-		if (gitHubToken) {
-			this.gitHTTPS = this.gitHTTPS.replace("https://github.com/", "https://oauth2:"+gitHubToken+"@github.com/")
+		if (gitOAuthToken) {
+			this.gitHTTPS.username = "oauth2";
+			this.gitHTTPS.password = gitOAuthToken;
 		}
 
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
@@ -626,10 +630,20 @@ enum ContainerStatus {
 	}
 
 	get orgName() {
-		return this.gitHTTPS.split('/').at(-2);
+		return this.gitHTTPS.pathname.split("/").at(0)!;
 	}
 	get repoName() {
-		return this.gitHTTPS.split('/').pop()!.replace('.git', '');
+		return this.gitHTTPS.pathname.split('/').slice(1).join("/")!.replace('.git', '');
+	}
+
+	get gitOrigin() {
+		return ({
+			"github.com": "GitHub",
+			"gitlab.com": "GitLab"
+		} as const)[this.gitHTTPS.hostname] ?? "GitLab";
+	}
+	get gitOriginURL() {
+		return new URL(`/${this.orgName}/${this.repoName}`, this.gitHTTPS);
 	}
 
 	// custom workbench container init
@@ -667,6 +681,7 @@ enum ContainerStatus {
 			const repoPath = `${dir}/repo`;
 			let repoIsPublic = false
 			try {
+				// TODO add for GitLab
 				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
 			}
 			catch {}
@@ -682,7 +697,7 @@ enum ContainerStatus {
 
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.includes("oauth2:")) {
-					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the GitHub access token is valid and has read access to the repository.`;
+					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
 					throw e;
 				}
 				
@@ -697,7 +712,7 @@ enum ContainerStatus {
 
 				// try clone with ssh
 				try {
-					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace('github.com', this.uniqueGithubHostName) : this.gitSSH} ${repoPath}`, true)
+					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
 					
@@ -707,11 +722,9 @@ enum ContainerStatus {
 					const appendOption = (option: string) => {
 						errorMessage += `${opt++}. ${option}\n`
 					}
-					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (https://github.com/${this.orgName}/${this.repoName}/settings)`);
-					if (this.gitHTTPS.startsWith("https://github.com/")) {
-						appendOption(`Pass a GitHub access token with --gh-token=<token> (Generate at https://github.com/settings/personal-access-tokens/new)`)
-					}
-					if (sshKey) appendOption(`Add the following SSH key to your repository (https://github.com/${this.orgName}/${this.repoName}/settings/keys/new): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
+					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL) : new URL("./edit", this.gitOriginURL)}`);
+					appendOption(`Pass a ${this.gitOrigin} access token with --git-token=<token> (Generate at ${this.gitOrigin === "GitHub" ? `https://github.com/settings/personal-access-tokens/new` : new URL(`./-/settings/access_tokens`, this.gitOriginURL)} )`)
+					if (sshKey) appendOption(`Add the following SSH key to your repository (${this.gitOrigin === "GitHub" ? new URL(`./settings/keys/new`, this.gitOriginURL) : new URL(`./-/settings/repository`, this.gitOriginURL)}): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 					this.errorMessage = errorMessage;
 					throw e;
 				}
@@ -788,8 +801,8 @@ enum ContainerStatus {
   		return `${homeDir}/.ssh/id_rsa_${this.sshKeyName}`;
 	}
 
-	private get uniqueGithubHostName() {
-		return `github.com_${this.sshKeyName}`;
+	private get uniqueGitHostName() {
+		return `git_${this.sshKeyName}`;
 	}
 
 	private async tryGetSSHKey() {
@@ -810,9 +823,9 @@ enum ContainerStatus {
 			catch {}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
 
-Host ${this.uniqueGithubHostName}
+Host ${this.uniqueGitHostName}
 	User git
-	Hostname github.com
+	Hostname ${this.gitHTTPS.hostname}
 	IdentityFile ${keyPath}
 `)
 			// return public key
@@ -897,13 +910,13 @@ Host ${this.uniqueGithubHostName}
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitHubToken?: string):Promise<UIXAppContainer>{
+	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitAccessToken?: string):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitHubToken);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken);
 		container.start();
 		await sleep(2000); // wait for immediate status updates
 

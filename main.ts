@@ -644,7 +644,7 @@ enum ContainerStatus {
 			"gitlab.com": "GitLab"
 		} as const)[this.gitHTTPS.hostname] ?? "GitLab";
 	}
-	set gitOriginURL() {
+	set gitOriginURL(v: any) {
 		throw "NOPE";
 	}
 	get gitOriginURL() {
@@ -733,7 +733,7 @@ enum ContainerStatus {
 						new URL("./edit", this.gitOriginURL).toString(),
 						new URL("./edit", this.gitOriginURL)
 					)
-					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL) : new URL("./edit", this.gitOriginURL)})`);
+					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL).toString() : new URL("./edit", this.gitOriginURL).toString()})`);
 					appendOption(`Pass a ${this.gitOrigin} access token with --git-token=<token> (Generate at ${this.gitOrigin === "GitHub" ? `https://github.com/settings/personal-access-tokens/new` : new URL(`./-/settings/access_tokens`, this.gitOriginURL)})`)
 					if (sshKey) appendOption(`Add the following SSH key to your repository (${this.gitOrigin === "GitHub" ? new URL(`./settings/keys/new`, this.gitOriginURL) : new URL(`./-/settings/repository`, this.gitOriginURL)}): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 					this.errorMessage = errorMessage;

@@ -465,8 +465,8 @@ enum ContainerStatus {
 @sync('UIXAppContainer') class UIXAppContainer extends Container {
 
 	@property branch?:string
-	@property gitSSH!:string
-	@property gitHTTPS!:URL
+	gitSSH!:string
+	gitHTTPS!:URL
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint

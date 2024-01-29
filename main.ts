@@ -465,8 +465,8 @@ enum ContainerStatus {
 @sync('UIXAppContainer') class UIXAppContainer extends Container {
 
 	@property branch?:string
-	gitSSH!:string
-	gitHTTPS!:URL
+	@property gitSSH!:string
+	@property gitHTTPS!:URL
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
@@ -511,8 +511,7 @@ enum ContainerStatus {
 			this.gitHTTPS.password = gitOAuthToken;
 		}
 		console.log(
-			this.repoName,
-			this.gitHTTPS.pathname
+			this.gitHTTPS.toString(), 1
 		)
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
@@ -666,10 +665,14 @@ enum ContainerStatus {
 		}
 
 		this.image = this.container_name
-
+		console.log(
+			this.gitHTTPS.toString(), 2
+		)
 
 		try {
-	
+			console.log(
+				this.gitHTTPS.toString(), 3
+			)
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 
 			this.logger.info("image: " + this.image);
@@ -682,7 +685,10 @@ enum ContainerStatus {
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
-			let repoIsPublic = false
+			let repoIsPublic = false;
+			console.log(
+				this.gitHTTPS.toString(), 4
+			)
 			try {
 				// TODO add for GitLab
 				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
@@ -695,9 +701,13 @@ enum ContainerStatus {
 			try {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
-
+			console.log(
+				this.gitHTTPS.toString(), 5
+			)
 			catch (e) {
-
+				console.log(
+					this.gitHTTPS.toString(), 6
+				)
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.username === "oauth2") {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;

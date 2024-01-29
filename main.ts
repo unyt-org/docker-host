@@ -502,7 +502,7 @@ enum ContainerStatus {
 			if (!host || !pathname)
 				throw new Error(`Invalid git URL '${gitURL}'!`);
 			this.gitSSH = gitURL;
-			this.gitHTTPS = `git@${host}:${pathname}`;
+			this.gitHTTPS = new URL(`https://${host}/${pathname}`);
 		}
 
 		// add gh token to URL

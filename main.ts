@@ -695,12 +695,14 @@ enum ContainerStatus {
 			catch {}
 
 			console.log(`repo ${this.orgName}/${this.repoName} is public: ${repoIsPublic}`)
-
+			console.log(this.gitOriginURL.toString(), 1);
 			// try clone with https first
 			try {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 			catch (e) {
+				console.log(this.gitOriginURL.toString(), 2);
+
 				console.log(
 					this.gitHTTPS.toString(), 6
 				)
@@ -710,7 +712,8 @@ enum ContainerStatus {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
 					throw e;
 				}
-				
+				console.log(this.gitOriginURL.toString(), 3);
+
 				let sshKey: string|undefined;
 				try {
 					sshKey = await this.tryGetSSHKey();
@@ -719,6 +722,7 @@ enum ContainerStatus {
 				catch (e) {
 					console.log("Failed to generate ssh key: ", e)
 				}
+				console.log(this.gitOriginURL.toString(), 4);
 
 				// try clone with ssh
 				try {
@@ -726,17 +730,24 @@ enum ContainerStatus {
 				}
 				catch (e) {
 					console.log(e)
-					
+					console.log(this.gitOriginURL.toString(), 5);
+
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
+					console.log(this.gitOriginURL.toString(), 6);
+
 					let opt = 1;
 					const appendOption = (option: string) => {
 						errorMessage += `${opt++}. ${option}\n`
 					}
+					console.log(this.gitOriginURL.toString(), 7);
+
 					console.log(
 						this.gitOriginURL.toString(),
 						new URL("./edit", this.gitOriginURL).toString(),
 						new URL("./edit", this.gitOriginURL)
 					)
+					console.log(this.gitOriginURL.toString(), 8);
+
 					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL).toString() : new URL("./edit", this.gitOriginURL).toString()})`);
 					appendOption(`Pass a ${this.gitOrigin} access token with --git-token=<token> (Generate at ${this.gitOrigin === "GitHub" ? `https://github.com/settings/personal-access-tokens/new` : new URL(`./-/settings/access_tokens`, this.gitOriginURL)})`)
 					if (sshKey) appendOption(`Add the following SSH key to your repository (${this.gitOrigin === "GitHub" ? new URL(`./settings/keys/new`, this.gitOriginURL) : new URL(`./-/settings/repository`, this.gitOriginURL)}): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);

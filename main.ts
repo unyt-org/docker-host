@@ -636,7 +636,7 @@ enum ContainerStatus {
 		return this.gitHTTPS.pathname.split("/").at(0)!;
 	}
 	get repoName() {
-		return this.gitHTTPS.pathname.split('/').slice(1).join("/")!.replace('.git', '');
+		return this.gitHTTPS.pathname.split('/').slice(2).join("/")!.replace('.git', '');
 	}
 
 	get gitOrigin() {

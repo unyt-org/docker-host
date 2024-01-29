@@ -644,7 +644,7 @@ enum ContainerStatus {
 			"gitlab.com": "GitLab"
 		} as const)[this.gitHTTPS.hostname] ?? "GitLab";
 	}
-	set gitOriginURL(v: any) {
+	set gitHTTPS(v: any) {
 		throw "NOPE";
 	}
 	get gitOriginURL() {

@@ -511,8 +511,8 @@ enum ContainerStatus {
 			this.gitHTTPS.password = gitOAuthToken;
 		}
 		console.log(
-			this.gitHTTPS,
-			this.gitHTTPS.toString(),
+			this.orgName,
+			this.repoName,
 			this.gitOriginURL,
 			this.gitOrigin,
 			this.gitSSH,

@@ -466,7 +466,7 @@ enum ContainerStatus {
 
 	@property branch?:string
 	@property gitSSH!:string
-	@property gitHTTPS!:URL
+	@property _gitHTTPS!:URL
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
@@ -645,7 +645,11 @@ enum ContainerStatus {
 		} as const)[this.gitHTTPS.hostname] ?? "GitLab";
 	}
 	set gitHTTPS(v: any) {
-		throw "NOPE";
+		this._gitHTTPS = v;
+		console.warn("Set", v);
+	}
+	get gitHTTPS() {
+		return this._gitHTTPS;
 	}
 	get gitOriginURL() {
 		return new URL(`/${this.orgName}/${this.repoName}`, this.gitHTTPS);

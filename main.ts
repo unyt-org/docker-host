@@ -665,14 +665,8 @@ enum ContainerStatus {
 		}
 
 		this.image = this.container_name
-		console.log(
-			this.gitHTTPS.toString(), 2
-		)
 
 		try {
-			console.log(
-				this.gitHTTPS.toString(), 3
-			)
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 
 			this.logger.info("image: " + this.image);
@@ -686,9 +680,7 @@ enum ContainerStatus {
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 			let repoIsPublic = false;
-			console.log(
-				this.gitHTTPS.toString(), 4
-			)
+		
 			try {
 				// TODO add for GitLab
 				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
@@ -700,15 +692,12 @@ enum ContainerStatus {
 			// try clone with https first
 			try {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
-
-			console.log(
-				this.gitHTTPS.toString(), 5
-			)
 			}
 			catch (e) {
 				console.log(
 					this.gitHTTPS.toString(), 6
 				)
+				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.username === "oauth2") {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
@@ -729,7 +718,7 @@ enum ContainerStatus {
 					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
-					
+					console.log(e)
 					
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
 					let opt = 1;
@@ -809,7 +798,7 @@ enum ContainerStatus {
 	}
 
 	private get sshKeyName() {
-		return Datex.Runtime.endpoint.main.name.replaceAll('-','_').replace('@+','').replace('@','').replace('@@','') +
+		return Datex.Runtime.endpoint.main.name.replaceAll('-','_') +
 			'_' + this.orgName?.replaceAll('-','_') +
 			'_' + this.repoName?.replaceAll('-','_')
 	}

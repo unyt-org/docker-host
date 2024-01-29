@@ -700,10 +700,11 @@ enum ContainerStatus {
 			// try clone with https first
 			try {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
-			}
+
 			console.log(
 				this.gitHTTPS.toString(), 5
 			)
+			}
 			catch (e) {
 				console.log(
 					this.gitHTTPS.toString(), 6

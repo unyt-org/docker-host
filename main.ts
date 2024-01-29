@@ -476,9 +476,20 @@ enum ContainerStatus {
 	// use v.0.1
 	isVersion1 = false;
 
+	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
+
 	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {super(owner)}
 	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {
 		this.construct(owner)
+
+		// validate domains
+		for (const domain of Object.keys(domains ?? {})) {
+			if (!UIXAppContainer.VALID_DOMAIN.test(domain)) {
+				this.errorMessage = `Invalid domain name "${domain}". Only alphanumeric characters and dashes are allowed.`;
+				this.status = ContainerStatus.FAILED;
+				throw new Error(this.errorMessage);
+			}
+		}
 
 		// convert from https github url
 		if (gitURL.startsWith("https://")) {

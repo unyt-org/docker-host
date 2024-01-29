@@ -10,7 +10,7 @@ import { config } from "./config.ts";
 
 import { getIP } from "https://deno.land/x/get_ip/mod.ts";
 import { Path } from "unyt_core/utils/path.ts";
-
+import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 const publicServerIP = await getIP({ipv6: false});
 
 
@@ -667,7 +667,7 @@ enum ContainerStatus {
 
 		try {
 	
-			const domains = this.domains ?? [Datex.Unyt.formatEndpointURL(this.endpoint)!.replace("https://","")];
+			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 
 			this.logger.info("image: " + this.image);
 			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);
@@ -696,7 +696,7 @@ enum ContainerStatus {
 			catch (e) {
 
 				// was probably a github token error, don't try ssh
-				if (this.gitHTTPS.includes("oauth2:")) {
+				if (this.gitHTTPS.username === "oauth2") {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
 					throw e;
 				}

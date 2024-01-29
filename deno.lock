@@ -1,6 +1,7 @@
 {
   "version": "3",
   "redirects": {
+    "https://deno.land/std/async/mod.ts": "https://deno.land/std@0.213.0/async/mod.ts",
     "https://deno.land/x/get_ip/mod.ts": "https://deno.land/x/get_ip@v2.0.0/mod.ts"
   },
   "remote": {

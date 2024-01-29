@@ -510,7 +510,10 @@ enum ContainerStatus {
 			this.gitHTTPS.username = "oauth2";
 			this.gitHTTPS.password = gitOAuthToken;
 		}
-
+		console.log(
+			this.gitHTTPS,
+			this.gitHTTPS.toString()
+		)
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed

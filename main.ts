@@ -512,7 +512,11 @@ enum ContainerStatus {
 		}
 		console.log(
 			this.gitHTTPS,
-			this.gitHTTPS.toString()
+			this.gitHTTPS.toString(),
+			this.gitOriginURL,
+			this.gitOrigin,
+			this.gitSSH,
+			this.gitSSH.toString()
 		)
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 

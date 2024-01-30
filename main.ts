@@ -796,8 +796,8 @@ enum ContainerStatus {
 
 	private get sshKeyName() {
 		return Datex.Runtime.endpoint.main.name.replaceAll('-','_') +
-			'_' + this.orgName?.replaceAll('-','_') +
-			'_' + this.repoName?.replaceAll('-','_')
+			'_' + this.orgName?.replaceAll('-','_').replaceAll('/','_') +
+			'_' + this.repoName?.replaceAll('-','_').replaceAll('/','_');
 	}
 
 	private get sshKeyPath() {

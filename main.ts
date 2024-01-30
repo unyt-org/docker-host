@@ -510,7 +510,7 @@ enum ContainerStatus {
 			this.gitHTTPS.username = "oauth2";
 			this.gitHTTPS.password = gitOAuthToken;
 		}
-		
+
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
@@ -650,7 +650,7 @@ enum ContainerStatus {
 		return this._gitHTTPS;
 	}
 	get gitOriginURL() {
-		return new URL(`/${this.orgName}/${this.repoName}`, this.gitHTTPS);
+		return new URL(`/${this.orgName}/${this.repoName}/`, this.gitHTTPS);
 	}
 
 	// custom workbench container init

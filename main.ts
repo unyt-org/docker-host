@@ -819,6 +819,10 @@ enum ContainerStatus {
 		}
 		// generate new key
 		catch {
+
+			// ssh keyscan
+			await execCommand(`ssh-keyscan -H ${this.gitHTTPS.hostname} >> ${homeDir}/.ssh/known_hosts`)
+
 			await execCommand(`ssh-keygen -t rsa -b 4096 -N '' -C '${Datex.Runtime.endpoint.main}' -f ${keyPath}`)
 			// add to ssh/config
 			let existingConfig = "";

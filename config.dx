@@ -1,7 +1,0 @@
-// Configuration for the docker host
-{
-	enableTraefik: false, // Set up a traefik container to route traffic to other containers
-	hostPort: 80, // Port to expose traefik on
-	setDNSEntries: false, // Set up DNS entries for unyt.app domains (requires access to unyt.app DNS)
-	allowArbitraryDomains: false // Allow arbitrary domains to be used (otherwise, only unyt.app domains can be used)
-}

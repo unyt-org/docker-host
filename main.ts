@@ -466,7 +466,7 @@ enum ContainerStatus {
 
 	@property branch?:string
 	@property gitSSH!:string
-	@property _gitHTTPS!:URL
+	@property gitHTTPS!:URL
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
@@ -494,7 +494,7 @@ enum ContainerStatus {
 		// convert from https url
 		if (gitURL.startsWith("https://")) {
 			this.gitHTTPS = new URL(gitURL);
-			this.gitSSH = `git@${this.gitHTTPS.host}:${this.gitHTTPS.pathname}`;
+			this.gitSSH = `git@${this.gitHTTPS.host}:${this.gitHTTPS.pathname.slice(1)}`;
 		}
 		// convert from ssh url
 		else if (gitURL.startsWith("git@")) {
@@ -642,13 +642,7 @@ enum ContainerStatus {
 			"gitlab.com": "GitLab"
 		} as const)[this.gitHTTPS.hostname] ?? "GitLab";
 	}
-	set gitHTTPS(v: any) {
-		this._gitHTTPS = v;
-		console.warn("Set", v);
-	}
-	get gitHTTPS() {
-		return this._gitHTTPS;
-	}
+	
 	get gitOriginURL() {
 		return new URL(`/${this.orgName}/${this.repoName}/`, this.gitHTTPS);
 	}

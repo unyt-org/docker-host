@@ -658,6 +658,8 @@ enum ContainerStatus {
 	// custom workbench container init
 	override async handleInit(){
 
+		console.log("HANDLE INIT!!!")
+
 		// setup network
 		await this.handleNetwork()
 

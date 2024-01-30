@@ -510,9 +510,7 @@ enum ContainerStatus {
 			this.gitHTTPS.username = "oauth2";
 			this.gitHTTPS.password = gitOAuthToken;
 		}
-		console.log(
-			this.gitHTTPS.toString(), 1
-		)
+		
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
@@ -632,7 +630,7 @@ enum ContainerStatus {
 	}
 
 	get orgName() {
-		return this.gitHTTPS.pathname.split("/").at(0)!;
+		return this.gitHTTPS.pathname.split("/").at(1)!;
 	}
 	get repoName() {
 		return this.gitHTTPS.pathname.split('/').slice(2).join("/")!.replace('.git', '');
@@ -657,9 +655,6 @@ enum ContainerStatus {
 
 	// custom workbench container init
 	override async handleInit(){
-
-		console.log("HANDLE INIT!!!")
-
 		// setup network
 		await this.handleNetwork()
 
@@ -696,25 +691,18 @@ enum ContainerStatus {
 			}
 			catch {}
 
-			console.log(`repo ${this.orgName}/${this.repoName} is public: ${repoIsPublic}`)
-			console.log(this.gitOriginURL.toString(), 1);
 			// try clone with https first
 			try {
 				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 			catch (e) {
-				console.log(this.gitOriginURL.toString(), 2);
 
-				console.log(
-					this.gitHTTPS.toString(), 6
-				)
 				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.username === "oauth2") {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
 					throw e;
 				}
-				console.log(this.gitOriginURL.toString(), 3);
 
 				let sshKey: string|undefined;
 				try {
@@ -724,7 +712,6 @@ enum ContainerStatus {
 				catch (e) {
 					console.log("Failed to generate ssh key: ", e)
 				}
-				console.log(this.gitOriginURL.toString(), 4);
 
 				// try clone with ssh
 				try {
@@ -732,23 +719,13 @@ enum ContainerStatus {
 				}
 				catch (e) {
 					console.log(e)
-					console.log(this.gitOriginURL.toString(), 5);
 
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
-					console.log(this.gitOriginURL.toString(), 6);
 
 					let opt = 1;
 					const appendOption = (option: string) => {
 						errorMessage += `${opt++}. ${option}\n`
 					}
-					console.log(this.gitOriginURL.toString(), 7);
-
-					console.log(
-						this.gitOriginURL.toString(),
-						new URL("./edit", this.gitOriginURL).toString(),
-						new URL("./edit", this.gitOriginURL)
-					)
-					console.log(this.gitOriginURL.toString(), 8);
 
 					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL).toString() : new URL("./edit", this.gitOriginURL).toString()})`);
 					appendOption(`Pass a ${this.gitOrigin} access token with --git-token=<token> (Generate at ${this.gitOrigin === "GitHub" ? `https://github.com/settings/personal-access-tokens/new` : new URL(`./-/settings/access_tokens`, this.gitOriginURL)})`)

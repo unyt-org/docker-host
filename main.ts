@@ -484,7 +484,10 @@ enum ContainerStatus {
 
 		// validate domains
 		for (const domain of Object.keys(domains ?? {})) {
-			if (!UIXAppContainer.VALID_DOMAIN.test(domain)) {
+			if (!(
+				UIXAppContainer.VALID_DOMAIN.test(domain) || 
+				(config.allowArbitraryDomains && domain.startsWith('*.'))
+			)) {
 				this.errorMessage = `Invalid domain name "${domain}". Only alphanumeric characters and dashes are allowed.`;
 				this.status = ContainerStatus.FAILED;
 				throw new Error(this.errorMessage);

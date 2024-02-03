@@ -14,4 +14,4 @@ COPY ./repo .
 
 EXPOSE 80
 # todo: $UIX_ARGS
-CMD sh -c "rm -f deno.lock; rm -f ./src/deno.lock; deno upgrade --version 1.39.4 &>/dev/null; deno run --importmap https://dev.cdn.unyt.org/importmap.json -Aqr https://dev.cdn.unyt.org/uix/run.ts --port 80 --stage $APP_STAGE --cache-path /datex-cache"
+CMD sh -c "rm -f deno.lock; rm -f ./src/deno.lock; deno upgrade --version 1.39.4 &>/dev/null; deno run --import-map https://cdn.unyt.org/uix@0.0.x/importmap.json -Aqr https://cdn.unyt.org/uix@0.0.x/run.ts --port 80 --stage $APP_STAGE --cache-path /datex-cache"

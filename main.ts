@@ -467,6 +467,7 @@ enum ContainerStatus {
 	@property stage!:string
 	@property domains!:Record<string, number> // domain name -> internal port
 	@property endpoint!:Datex.Endpoint
+	@property advancedOptions?: AdvancedUIXContainerOptions
 
 	@property args?: string[]
 
@@ -475,7 +476,7 @@ enum ContainerStatus {
 
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
-	construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string) {
+	construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string, advancedOptions?: AdvancedUIXContainerOptions) {
 		super.construct(owner)
 
 		// validate domains
@@ -511,6 +512,7 @@ enum ContainerStatus {
 		}
 
 		this.container_name = endpoint.name + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
+		this.advancedOptions = advancedOptions;
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.args = args;
@@ -671,7 +673,8 @@ enum ContainerStatus {
 			this.logger.info("branch: " + this.branch);
 			this.logger.info("endpoint: " + this.endpoint);
 			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
-
+			this.logger.info("advancedOptions: " + this.advancedOptions ? JSON.stringify(this.advancedOptions) : "-");
+			
 			// clone repo
 			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
 			const dockerfilePath = `${dir}/Dockerfile`;
@@ -840,8 +843,11 @@ Host ${this.uniqueGitHostName}
 	private async getDockerFileContent() {
 		let dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
 
-		// add uix run args
-		dockerfile = dockerfile.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
+		// add uix run args + custom importmap/run path
+		dockerfile = dockerfile
+			.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
+			.replace("{{IMPORTMAP_PATH}}", this.advancedOptions?.importMapPath ?? 'https://cdn.unyt.org/uix/importmap.json')
+			.replace("{{UIX_RUN_PATH}}", this.advancedOptions?.uixRunPath ?? 'https://cdn.unyt.org/uix/run.ts')
 
 		// expose port
 		if (this.debugPort) {
@@ -872,6 +878,11 @@ Host ${this.uniqueGitHostName}
 	}
 	
 }
+
+type AdvancedUIXContainerOptions = {
+	importMapPath?:string, 
+	uixRunPath?:string
+} 
 
 @endpoint class ContainerManager {
 
@@ -912,13 +923,13 @@ Host ${this.uniqueGitHostName}
 		return container;
 	}
 
-	@property static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitAccessToken?: string):Promise<UIXAppContainer>{
+	@property static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitAccessToken?: string, advancedOptions?: AdvancedUIXContainerOptions):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
-		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken);
+		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
 		container.start();
 		await sleep(2000); // wait for immediate status updates
 

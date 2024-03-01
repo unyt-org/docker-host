@@ -1,15 +1,7 @@
 {
 	"importMap": "importmap.dev.json",
     "compilerOptions": {
-        "module": "ES2022",
-        "target": "ES2022",
-        "noImplicitOverride":true,
-        "removeComments": true,
-        "preserveConstEnums": true,
-        "esModuleInterop": true,
-        "emitDecoratorMetadata": true,
-        "useDefineForClassFields": true,
+    },
 		"lib": ["deno.window", "dom"]
-    }
-  }
+}
   

@@ -1,14 +1,14 @@
 import { OutputMode, exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
 
 import { EndpointConfig } from "./endpoint-config.ts";
-import { Datex, constructor, expose, property, replicator,default_property, scope, sync } from "unyt_core";
+import { Datex, property, sync } from "unyt_core";
 import { Class } from "unyt_core/utils/global_types.ts";
 
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 import { ESCAPE_SEQUENCES } from "unyt_core/utils/logger.ts";
 import { config } from "./config.ts";
 
-import { getIP } from "https://deno.land/x/get_ip/mod.ts";
+import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { Path } from "unyt_core/utils/path.ts";
 import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 const publicServerIP = await getIP({ipv6: false});
@@ -54,7 +54,7 @@ enum ContainerStatus {
 }
 
 // parent class for all types of containers
-@sync('Container') class Container {
+@sync class Container {
 
 	protected logger!:Datex.Logger;
 	#initialized = false;
@@ -123,15 +123,14 @@ enum ContainerStatus {
 			const r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
 			return v.toString(16);
 		});
-	  }
+	}
 
-	constructor(owner: Datex.Endpoint) {}
-	@constructor construct(owner: Datex.Endpoint) {
+	construct(owner: Datex.Endpoint) {
 		this.owner = owner;
 		this.container_name = this.uniqueID();
 		this.logger = new Datex.Logger(this);
 	}
-	@replicator replicate(){
+	replicate(){
 		this.logger = new Datex.Logger(this);
 		this.#initialized = true;
 		this.updateAfterReplicate();
@@ -357,13 +356,12 @@ enum ContainerStatus {
 
 }
 
-@sync('WorkbenchContainer') class WorkbenchContainer extends Container {
+@sync class WorkbenchContainer extends Container {
 
 	@property config!: EndpointConfig
 
-	constructor(owner: Datex.Endpoint, config: EndpointConfig) {super(owner)}
-	@constructor constructWorkbenchContanier(owner: Datex.Endpoint, config: EndpointConfig) {
-		this.construct(owner)
+	override construct(owner: Datex.Endpoint, config: EndpointConfig) {
+		super.construct(owner)
 		this.config = config;
 		this.name = "unyt Workbench"
 	}
@@ -418,14 +416,13 @@ enum ContainerStatus {
 }
 
 
-@sync('RemoteImageContainer') class RemoteImageContainer extends Container {
+@sync class RemoteImageContainer extends Container {
 
 	@property version?:string
 	@property url!:string
 
-	constructor(owner: Datex.Endpoint, url: string, version?:string) {super(owner)}
-	@constructor constructRemoteImageContainer(owner: Datex.Endpoint, url: string, version?: string) {
-		this.construct(owner)
+	construct(owner: Datex.Endpoint, url: string, version?: string) {
+		super.construct(owner)
 		this.version = version;
 		this.url = url;
 		this.name = url;
@@ -462,7 +459,7 @@ enum ContainerStatus {
 }
 
 
-@sync('UIXAppContainer') class UIXAppContainer extends Container {
+@sync class UIXAppContainer extends Container {
 
 	@property branch?:string
 	@property gitSSH!:string
@@ -478,9 +475,8 @@ enum ContainerStatus {
 
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
-	constructor(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?:string, stage?: string, domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitHubToken?: string) {super(owner)}
-	@constructor constructUIXAppContainer(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string) {
-		this.construct(owner)
+	construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string) {
+		super.construct(owner)
 
 		// validate domains
 		for (const domain of Object.keys(domains ?? {})) {
@@ -877,13 +873,13 @@ Host ${this.uniqueGitHostName}
 	
 }
 
-@default_property @scope class ContainerManager {
+@endpoint class ContainerManager {
 
-	@expose static async getContainers():Promise<Set<Container>>{
+	@property static async getContainers():Promise<Set<Container>>{
 		return containers.getAuto(datex.meta!.sender);
 	}
 
-	@expose static async createWorkbenchContainer():Promise<WorkbenchContainer>{
+	@property static async createWorkbenchContainer():Promise<WorkbenchContainer>{
 		const sender = datex.meta!.sender;
 		logger.info("Creating new Workbench Container for " + sender);
 
@@ -901,7 +897,7 @@ Host ${this.uniqueGitHostName}
 		return container;
 	}
 
-	@expose static async createRemoteImageContainer(url:string):Promise<RemoteImageContainer>{
+	@property static async createRemoteImageContainer(url:string):Promise<RemoteImageContainer>{
 		const sender = datex.meta!.sender;
 
 		logger.info("Creating new Remote Image Container for " + sender, url);
@@ -916,7 +912,7 @@ Host ${this.uniqueGitHostName}
 		return container;
 	}
 
-	@expose static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitAccessToken?: string):Promise<UIXAppContainer>{
+	@property static async createUIXAppContainer(gitURL:string, branch: string, endpoint: Datex.Endpoint, stage?: string, domains?: Record<string, number>, env?: string[], args?: string[], persistentVolumePaths?: string[], gitAccessToken?: string):Promise<UIXAppContainer>{
 		const sender = datex.meta!.sender;
 
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);

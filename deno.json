@@ -7,7 +7,6 @@
         "removeComments": true,
         "preserveConstEnums": true,
         "esModuleInterop": true,
-        "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "useDefineForClassFields": true,
 		"lib": ["deno.window", "dom"]

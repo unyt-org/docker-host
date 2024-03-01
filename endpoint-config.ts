@@ -1,7 +1,7 @@
-import { Datex, template, property } from "unyt_core";
+import { Datex, sync, property } from "unyt_core";
 
-@template('<unyt:endpoint-config>') export class EndpointConfig {
-	@property declare version: number
-	@property declare endpoint: Datex.Endpoint
-	@property('expose-database') declare ['expose-database']: boolean
+@sync export class EndpointConfig {
+	@property version!: number
+	@property endpoint!: Datex.Endpoint
+	@property exposeDatabase!: boolean
 }

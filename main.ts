@@ -846,7 +846,7 @@ Host ${this.uniqueGitHostName}
 		// add uix run args + custom importmap/run path
 		dockerfile = dockerfile
 			.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
-			.replace("{{IMPORTMAP_PATH}}",  'https://dev.cdn.unyt.org/uix1/importmap.json')
+			.replace("{{IMPORTMAP_PATH}}",  'https://dev.cdn.unyt.org/uix1/importmap.dev.json')
 			.replace("{{UIX_RUN_PATH}}", 'https://dev.cdn.unyt.org/uix1/run.ts')
 
 		// expose port

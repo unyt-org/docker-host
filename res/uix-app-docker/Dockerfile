@@ -1,4 +1,6 @@
-FROM denoland/deno:alpine
+FROM denoland/deno:bin AS deno
+FROM ubuntu
+COPY --from=deno /deno /usr/local/bin/deno
 
 ARG stage
 ARG host_endpoint

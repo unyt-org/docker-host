@@ -884,7 +884,7 @@ type AdvancedUIXContainerOptions = {
 	uixRunPath?:string
 } 
 
-@endpoint class ContainerManager {
+@endpoint @entrypointProperty class ContainerManager {
 
 	@property static async getContainers():Promise<Set<Container>>{
 		return containers.getAuto(datex.meta!.sender);

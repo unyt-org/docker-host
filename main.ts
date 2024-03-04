@@ -883,8 +883,8 @@ type AdvancedUIXContainerOptions = {
 	importMapPath?:string, 
 	uixRunPath?:string
 } 
-// @entrypointProperty
-@endpoint class ContainerManager {
+
+@endpoint @entrypointProperty class ContainerManager {
 
 	@property static async getContainers():Promise<Set<Container>>{
 		return containers.getAuto(datex.meta!.sender);

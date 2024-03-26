@@ -689,7 +689,7 @@ enum ContainerStatus {
 
 			// try clone with https first
 			try {
-				await execCommand(`git clone --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
+				await execCommand(`git clone --depth 1 --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 			catch (e) {
 
@@ -711,7 +711,7 @@ enum ContainerStatus {
 
 				// try clone with ssh
 				try {
-					await execCommand(`git clone --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
+					await execCommand(`git clone --depth 1 --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
 					console.log(e)

@@ -476,7 +476,7 @@ enum ContainerStatus {
 
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
-	construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string, advancedOptions?: AdvancedUIXContainerOptions) {
+	async construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string, advancedOptions?: AdvancedUIXContainerOptions) {
 		super.construct(owner)
 
 		// validate domains
@@ -543,11 +543,10 @@ enum ContainerStatus {
 		}
 
 		// add persistent volumes
-		let i = 1;
 		for (const path of persistentVolumePaths??[]) {
 			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
-			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (i++).toString())
-			this.addVolume(volumeName, mappedPath);
+			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (Object.keys(this.volumes).length))
+			await this.addVolume(volumeName, mappedPath);
 		}
 
 	}

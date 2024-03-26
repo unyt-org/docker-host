@@ -543,9 +543,10 @@ enum ContainerStatus {
 		}
 
 		// add persistent volumes
+		let i = 1;
 		for (const path of persistentVolumePaths??[]) {
 			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
-			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (Object.keys(this.volumes).length))
+			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (i++).toString())
 			this.addVolume(volumeName, mappedPath);
 		}
 

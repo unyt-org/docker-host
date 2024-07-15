@@ -313,12 +313,14 @@ enum ContainerStatus {
 		this.addLabel(`traefik.enable=true`);
 		this.addLabel(`traefik.http.routers.${name}.rule=${hostRule}`);
 		this.addLabel(`traefik.http.routers.${name}.entrypoints=web`);
-		this.addLabel(`traefik.http.routers.${name}.priority=10`);
+		// TODO: only workaoound for *.unyt.app domains: prio 1
+		this.addLabel(`traefik.http.routers.${name}.priority=${hasWildcard ? 1 : 10}`);
 		this.addLabel(`traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https`);
 		this.addLabel(`traefik.http.routers.${name}.middlewares=redirect-to-https@docker`);
 		this.addLabel(`traefik.http.routers.${name}-secured.rule=${hostRule}`);
 		this.addLabel(`traefik.http.routers.${name}-secured.tls=true`);
-		this.addLabel(`traefik.http.routers.${name}-secured.priority=10`);
+		// TODO: only workaoound for *.unyt.app domains: prio 1
+		this.addLabel(`traefik.http.routers.${name}-secured.priority=${hasWildcard ? 1 : 10}`);
 
 		if (hasWildcard) {
 			const rawHost = host.slice(2);

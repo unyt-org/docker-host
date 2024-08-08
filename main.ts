@@ -693,7 +693,7 @@ enum ContainerStatus {
 
 			// try clone with https first
 			try {
-				await execCommand(`git clone --depth 1 --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
+				await execCommand(`git clone --depth 1 --single-branch --branch ${this.branch} --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 			catch (e) {
 
@@ -734,9 +734,6 @@ enum ContainerStatus {
 					throw e;
 				}
 			}
-
-
-			await execCommand(`cd ${repoPath} && git checkout ${this.branch}`)
 
 			// set debug port
 			let i=0;
@@ -990,6 +987,6 @@ async function execCommand<DenoRun extends boolean = false>(command:string, deno
 	else {
 		const {status, output} = (await exec(`bash -c "${command.replaceAll('"', '\\"')}"`, {output: OutputMode.Capture}));
 		if (!status.success) throw output;
-		else return output  as any;
+		else return output as any;
 	}
 }

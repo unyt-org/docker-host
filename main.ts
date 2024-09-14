@@ -7,6 +7,7 @@ import Container from "./src/container/Container.ts";
 import RemoteImageContainer from "./src/container/RemoteImageContainer.ts";
 import UIXAppContainer, { AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import WorkbenchContainer from "./src/container/WorkbenchContainer.ts";
+import { Endpoint } from "unyt_core/datex_all.ts";
 
 const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
@@ -77,6 +78,10 @@ const ensureToken = (token?: string) => {
 
 		if (!branch || typeof branch !== "string" || branch.length < 2 || branch.length > 50 || !/^[a-z\.\-\/#0-9:&]+$/gi.test(branch))
 			throw new Error(`Can not create UIX App container with branch '${branch}'`);
+		if (!gitURL || typeof gitURL !== "string" || gitURL.length < 2)
+			throw new Error(`Can not create UIX App container with url '${gitURL}'`);
+		if (!endpoint || !(endpoint instanceof Endpoint))
+			throw new Error(`Can not create UIX App container with endpoint '${endpoint}'`);
 
 		// init and start RemoteImageContainer
 		// @ts-ignore $

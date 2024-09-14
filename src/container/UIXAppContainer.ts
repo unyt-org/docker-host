@@ -99,7 +99,9 @@ export type AdvancedUIXContainerOptions = {
 			this.gitHTTPS.password = gitOAuthToken;
 		}
 
-		this.container_name = endpoint.name.toLowerCase() + (endpoint.name.endsWith(stage) ? '' : (stage ? '-' + stage : ''))
+		this.container_name = (endpoint.name + (endpoint.name.toLowerCase().endsWith(stage.toLowerCase()) ? '' : (stage ? '-' + stage : '')))
+			.replace(/[^a-z0-9@-_#/]/gmi, "")
+			.toLowerCase();
 		this.advancedOptions = advancedOptions;
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
@@ -122,7 +124,8 @@ export type AdvancedUIXContainerOptions = {
 		
 		this.isVersion1 = !! env?.includes("UIX_VERSION=0.1")
 
-		if (this.isVersion1) this.logger.info("using UIX v0.1")
+		if (this.isVersion1)
+			this.logger.info("using UIX v0.1")
 
 		// inject environment variables
 		for (const envVar of env??[]) {
@@ -131,12 +134,11 @@ export type AdvancedUIXContainerOptions = {
 		}
 
 		// add persistent volumes
-		for (const path of persistentVolumePaths??[]) {
+		for (const path of persistentVolumePaths ?? []) {
 			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
-			const volumeName = this.formatVolumeName(this.container_name + '-persistent-' + (Object.keys(this.volumes).length))
+			const volumeName = this.formatVolumeName(`${this.container_name}-persistent-${(Object.keys(this.volumes).length)}`);
 			await this.addVolume(volumeName, mappedPath);
 		}
-
 	}
 
 	protected async handleNetwork() {

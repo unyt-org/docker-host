@@ -71,11 +71,6 @@ await Datex.Supranet.connect();
 		const sender = datex.meta!.caller;
 		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch);
 
-		try { new URL(gitURL); }
-		catch {
-			throw new Error("The URL seems to be no valid URL");
-		}
-
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);

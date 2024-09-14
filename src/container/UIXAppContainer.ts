@@ -8,7 +8,7 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
-import { executeDocker, executeShell } from "../CMD.ts";
+import { executeDocker, executeGit, executeShell } from "../CMD.ts";
 
 const publicServerIP = await getIP({ipv6: false});
 const defaulTraefikToml = `
@@ -40,7 +40,7 @@ export type AdvancedUIXContainerOptions = {
 };
 
 @sync export default class UIXAppContainer extends Container {
-	@property branch?: string;
+	@property branch!: string;
 	@property gitSSH!: string;
 	@property gitHTTPS!: URL;
 	@property stage!: string;
@@ -58,7 +58,7 @@ export type AdvancedUIXContainerOptions = {
 		owner: Datex.Endpoint,
 		endpoint: Datex.Endpoint,
 		gitURL: string,
-		branch?: string,
+		branch: string,
 		stage = 'prod',
 		domains?: Record<string, number>,
 		env?:string[],
@@ -108,7 +108,7 @@ export type AdvancedUIXContainerOptions = {
 		this.endpoint = endpoint; // TODO: what if @@local is passed
 		this.args = args;
 		
-		this.branch = branch;
+		this.branch = branch ?? "main";
 		this.stage = stage;
 		this.domains = domains ?? {};
 
@@ -123,7 +123,7 @@ export type AdvancedUIXContainerOptions = {
 			}
 		}
 		
-		this.isVersion1 = !! env?.includes("UIX_VERSION=0.1")
+		this.isVersion1 = !!env?.includes("UIX_VERSION=0.1")
 
 		if (this.isVersion1)
 			this.logger.info("using UIX v0.1")
@@ -131,7 +131,7 @@ export type AdvancedUIXContainerOptions = {
 		// inject environment variables
 		for (const envVar of env??[]) {
 			const [key, val] = envVar.split("=");
-			this.addEnvironmentVariable(key, val)
+			this.addEnvironmentVariable(key, val);
 		}
 
 		// add persistent volumes
@@ -259,8 +259,8 @@ export type AdvancedUIXContainerOptions = {
 			stage: this.stage
 		}});
 		for (const existingContainer of existingContainers) {
-			this.logger.error("removing existing container", existingContainer)
-			await existingContainer.remove()
+			this.logger.warn("Removing existing container", existingContainer)
+			await existingContainer.remove();
 		}
 		this.image = this.container_name;
 		try {
@@ -285,7 +285,15 @@ export type AdvancedUIXContainerOptions = {
 
 			// try clone with https first
 			try {
-				await execCommand(`git clone --depth 1 --single-branch --branch ${this.branch} --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
+				await executeGit([
+					"clone",
+					"depth", "1",
+					"-single-branch",
+					"--branch", this.branch,
+					"--recurse-submodules",
+					this.gitHTTPS.toString(),
+					repoPath
+				], true);
 			} catch (e) {
 				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
@@ -297,17 +305,22 @@ export type AdvancedUIXContainerOptions = {
 				let sshKey: string|undefined;
 				try {
 					sshKey = await this.tryGetSSHKey();
-					this.logger.info("ssh public key: " + sshKey)
-				}
-				catch (e) {
-					this.logger.info("Failed to generate ssh key: ", e)
+					this.logger.info("SSH public key: " + sshKey)
+				} catch (e) {
+					this.logger.info("Failed to generate SSH key: ", e)
 				}
 
 				// try clone with ssh
 				try {
-					await execCommand(`git clone --depth 1 --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
-				}
-				catch (e) {
+					const key = sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH;
+					await executeGit([
+						"clone",
+						"--depth", "1",
+						"--recurse-submodules",
+						key,
+						repoPath
+					], true);
+				} catch (e) {
 					this.logger.error(e);
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
 
@@ -346,10 +359,18 @@ export type AdvancedUIXContainerOptions = {
 
 			// create docker container
 			// TODO: --build-arg uix_args="${this.args?.join(" ")??""}"
-			await execCommand(`docker build -f ${dockerfilePath} --build-arg stage=${this.stage} --build-arg host_endpoint=${Datex.Runtime.endpoint} -t ${this.image} ${dir}`)
+			await executeDocker([
+				"build",
+				"-f", dockerfilePath,
+				"--build-arg", `stage=${this.stage}`,
+				"--build-arg", `host_endpoint=${Datex.Runtime.endpoint}`,
+				"-t",
+				this.image,
+				dir
+			], true)
 
 			// remove tmp dir
-			await Deno.remove(dir, {recursive: true});
+			await Deno.remove(dir, { recursive: true });
 
 			// enable traefik routing
 			if (config.enableTraefik) {
@@ -364,10 +385,10 @@ export type AdvancedUIXContainerOptions = {
 			}
 
 			// add persistent volume for datex cache
-			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'datex-cache'), '/datex-cache')
+			await this.addVolume(this.formatVolumeName(`${this.container_name}-datex-cache`), '/datex-cache');
 
 			// add persistent volume for deno localStoragae
-			await this.addVolume(this.formatVolumeName(this.container_name+'-'+'localstorage'), '/root/.cache/deno/location_data')
+			await this.addVolume(this.formatVolumeName(`${this.container_name}-localstorage`), '/root/.cache/deno/location_data');
 
 			// // add volume for host data, available in /app/hostdata
 			// this.addVolumePath('/root/data', '/app/hostdata')
@@ -406,9 +427,19 @@ export type AdvancedUIXContainerOptions = {
 		catch {
 
 			// ssh keyscan
-			await execCommand(`ssh-keyscan -H ${this.gitHTTPS.hostname} >> ${homeDir}/.ssh/known_hosts`)
-
-			await execCommand(`ssh-keygen -t rsa -b 4096 -N '' -C '${Datex.Runtime.endpoint.main}' -f ${keyPath}`)
+			await executeShell([
+				"ssh-keyscan",
+				"-H", this.gitHTTPS.hostname,
+				">>", `${homeDir}/.ssh/known_hosts`
+			], false);
+			await executeShell([
+				"ssh-keygen",
+				"-t", "rsa",
+				"-b", "4096",
+				"-N", "''",
+				"-C", `'${Datex.Runtime.endpoint.main.toString()}'`,
+				"-f", keyPath
+			]);
 			// add to ssh/config
 			let existingConfig = "";
 			try {
@@ -420,14 +451,16 @@ Host ${this.uniqueGitHostName}
 	User git
 	Hostname ${this.gitHTTPS.hostname}
 	IdentityFile ${keyPath}
-`)
+`);
 			// return public key
-			return await Deno.readTextFile(keyPath+".pub");
+			return await Deno.readTextFile(`${keyPath}.pub`);
 		}
 	}
 
 	private async getDockerFileContent() {
-		let dockerfile = await Deno.readTextFile(this.isVersion1 ? './res/uix-app-docker/Dockerfile_v0.1' : './res/uix-app-docker/Dockerfile');
+		let dockerfile = await Deno.readTextFile(this.isVersion1 ? 
+			'./res/uix-app-docker/Dockerfile_v0.1' :
+			'./res/uix-app-docker/Dockerfile');
 
 		// add uix run args + custom importmap/run path
 		dockerfile = dockerfile
@@ -436,12 +469,10 @@ Host ${this.uniqueGitHostName}
 			.replace("{{UIX_RUN_PATH}}", this.advancedOptions?.uixRunPath ?? 'https://cdn.unyt.org/uix@0.1.x/run.ts')
 
 		// expose port
-		if (this.debugPort) {
+		if (this.debugPort)
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "EXPOSE 9229")
-		}
-		else {
+		else
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "")
-		}
 		return dockerfile;
 	}
 
@@ -462,5 +493,4 @@ Host ${this.uniqueGitHostName}
 			}
 		}
 	}
-	
 }

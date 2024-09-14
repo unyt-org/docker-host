@@ -2,11 +2,11 @@ import { Datex } from "unyt_core/mod.ts";
 
 const logger = new Datex.Logger("CMD");
 
-export async function executeDocker(args: string[], output = true) {
+async function executeCommand(command: string, args: string[], output = true) {
 	let status = false;
 	try {
 		status = (await new Deno.Command(
-			"docker",
+			command,
 			{
 				stderr: "inherit",
 				stdout: output ? "inherit" : "null",
@@ -14,13 +14,20 @@ export async function executeDocker(args: string[], output = true) {
 			}
 		).spawn().status).success;
 	} catch (e) {
-		logger.error(`Could not execute "docker ${args.join(" ")}"`);
+		logger.error(`Could not execute "${command} ${args.join(" ")}"`);
 		throw e;
 	}
 	if (!status) {
-		logger.error(`"docker ${args.join(" ")}" failed`);
-		throw new Error("Could not execute");
+		logger.error(`"${command} ${args.join(" ")}" failed`);
+		throw new Error(`Could not execute ${command}`);
 	}
+}
+
+export async function executeDocker(args: string[], output = true) {
+	return await executeCommand("docker", args, output);
+}
+export async function executeGit(args: string[], output = true) {
+	return await executeCommand("git", args, output);
 }
 export async function executeShell(args: string[], output = true) {
 	let status = false;

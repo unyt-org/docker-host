@@ -8,6 +8,7 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
+import { executeDocker, executeShell } from "../CMD.ts";
 
 const publicServerIP = await getIP({ipv6: false});
 const defaulTraefikToml = `
@@ -143,16 +144,27 @@ export type AdvancedUIXContainerOptions = {
 
 	protected async handleNetwork() {
 		// make sure main network exists
-		await execCommand(`docker network inspect ${this.network} &>/dev/null || docker network create ${this.network}`)
+		try {
+			await executeDocker([
+				"network",
+				"inspect",
+				this.network,
+			], false);
+		} catch {
+			await executeDocker([
+				"network",
+				"create",
+				this.network,
+			], false);
+		}
 		
 		if (config.enableTraefik) {
 			// has traefik?
 			try {
-				await execCommand(`docker container ls | grep traefik`)
-				this.logger.info("has traefik container");
-			}
-			catch {
-				this.logger.info("no traefik container detected, creating a new traefik container");
+				await executeShell(["docker", "ls", "|", "grep", "traefik"]);
+				this.logger.success("Found existing traefik container");
+			} catch {
+				this.logger.info("Could not detect existing traefik container. Creating new traefik container...");
 				const traefikDir = new Path("/etc/traefik/");
 				
 				// init and start traefik container
@@ -163,9 +175,10 @@ export type AdvancedUIXContainerOptions = {
 				const acmeJsonPath = traefikDir.asDir().getChildPath("acme.json");
 
 				await Deno.create(acmeJsonPath.normal_pathname)
-				await execCommand(`chmod 600 ${acmeJsonPath.normal_pathname}`)
+				await executeShell(["chmod", "600", acmeJsonPath.normal_pathname], false);
 				await Deno.writeTextFile(traefikTomlPath.normal_pathname, defaulTraefikToml)
 
+				// @ts-ignore $
 				const traefikContainer = new RemoteImageContainer(Datex.LOCAL_ENDPOINT, "traefik", "v2.5");
 				traefikContainer.exposePort(80, config.hostPort)
 				traefikContainer.exposePort(443, 443)
@@ -174,8 +187,7 @@ export type AdvancedUIXContainerOptions = {
 				traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
 
 				traefikContainer.start();
-				logger.error(traefikContainer)
-				// this.exposePort(80, 80);
+				logger.success("Created traefik container", traefikContainer);
 			}
 		}
 	}
@@ -197,7 +209,6 @@ export type AdvancedUIXContainerOptions = {
 					}
 				}
 			}
-
 		}
 	}
 
@@ -210,10 +221,9 @@ export type AdvancedUIXContainerOptions = {
 					try {
 						await datex `@+unyt-dns-1.DNSManager.removeARecord(${domain})`
 						this.logger.success("Successfully removed DNS entry for " + domain);
-					}
-					catch (e) {
+					} catch (e) {
 						this.logger.error("Error removing DNS entry for " + domain);
-						console.error(e)
+						this.logger.error(e);
 					}
 				}
 			}
@@ -252,9 +262,7 @@ export type AdvancedUIXContainerOptions = {
 			this.logger.error("removing existing container", existingContainer)
 			await existingContainer.remove()
 		}
-
 		this.image = this.container_name;
-
 		try {
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 			this.logger.info("image: " + this.image);
@@ -265,7 +273,7 @@ export type AdvancedUIXContainerOptions = {
 			this.logger.info("advancedOptions: " + this.advancedOptions ? JSON.stringify(this.advancedOptions) : "-");
 			
 			// clone repo
-			const dir = await Deno.makeTempDir({prefix:'uix-app-'});
+			const dir = await Deno.makeTempDir({ prefix:'uix-app-' });
 			const dockerfilePath = `${dir}/Dockerfile`;
 			const repoPath = `${dir}/repo`;
 			let repoIsPublic = false;
@@ -273,14 +281,12 @@ export type AdvancedUIXContainerOptions = {
 			try {
 				// TODO add for GitLab
 				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
-			}
-			catch {}
+			} catch {}
 
 			// try clone with https first
 			try {
 				await execCommand(`git clone --depth 1 --single-branch --branch ${this.branch} --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
-			}
-			catch (e) {
+			} catch (e) {
 				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.username === "oauth2") {
@@ -303,7 +309,6 @@ export type AdvancedUIXContainerOptions = {
 				}
 				catch (e) {
 					this.logger.error(e);
-
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
 
 					let opt = 1;
@@ -311,9 +316,11 @@ export type AdvancedUIXContainerOptions = {
 						errorMessage += `${opt++}. ${option}\n`
 					}
 
-					if (!repoIsPublic) appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL).toString() : new URL("./edit", this.gitOriginURL).toString()})`);
+					if (!repoIsPublic)
+						appendOption(`Make the repository publicly accessible (${this.gitOrigin === "GitHub" ? new URL(`./settings`, this.gitOriginURL).toString() : new URL("./edit", this.gitOriginURL).toString()})`);
 					appendOption(`Pass a ${this.gitOrigin} access token with --git-token=<token> (Generate at ${this.gitOrigin === "GitHub" ? `https://github.com/settings/personal-access-tokens/new` : new URL(`./-/settings/access_tokens`, this.gitOriginURL)})`)
-					if (sshKey) appendOption(`Add the following SSH key to your repository (${this.gitOrigin === "GitHub" ? new URL(`./settings/keys/new`, this.gitOriginURL) : new URL(`./-/settings/repository`, this.gitOriginURL)}): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
+					if (sshKey)
+						appendOption(`Add the following SSH key to your repository (${this.gitOrigin === "GitHub" ? new URL(`./settings/keys/new`, this.gitOriginURL) : new URL(`./-/settings/repository`, this.gitOriginURL)}): \n\n${ESCAPE_SEQUENCES.GREY}${sshKey}${ESCAPE_SEQUENCES.RESET}\n`);
 					this.errorMessage = errorMessage;
 					throw e;
 				}
@@ -379,8 +386,9 @@ export type AdvancedUIXContainerOptions = {
 
 	private get sshKeyPath() {
 		const homeDir = Deno.env.get("HOME");
-		if (!homeDir) throw new Error("Could not get home directory");
-  		return `${homeDir}/.ssh/id_rsa_${this.sshKeyName}`;
+		if (!homeDir)
+			throw new Error("Could not get home directory");
+		return `${homeDir}/.ssh/id_rsa_${this.sshKeyName}`;
 	}
 
 	private get uniqueGitHostName() {
@@ -405,8 +413,7 @@ export type AdvancedUIXContainerOptions = {
 			let existingConfig = "";
 			try {
 				existingConfig = await Deno.readTextFile(`${homeDir}/.ssh/config`);
-			}
-			catch {}
+			} catch {}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
 
 Host ${this.uniqueGitHostName}

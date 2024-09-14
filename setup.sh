@@ -37,9 +37,11 @@ if ! [ -x "$(command -v deno)" ]; then
 fi
 
 
-# echo "Please enter the endpoint id for this docker host:"
-# read ENDPOINT
 ENDPOINT="$1"
+if [ ${#ENDPOINT} -gt 20 ]; then
+	echo "Error: Endpoint id/name must be <=18 bytes"
+	exit 1
+fi
 
 mkdir -p $HOME/.unyt-docker-host/
 

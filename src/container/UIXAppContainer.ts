@@ -1,4 +1,4 @@
-import { logger, ESCAPE_SEQUENCES } from "unyt_core/datex_all.ts";
+import { logger, ESCAPE_SEQUENCES, Logger } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 import { Path } from "unyt_core/utils/path.ts";
@@ -166,6 +166,8 @@ export type AdvancedUIXContainerOptions = {
 			} catch {
 				this.logger.info("Could not detect existing traefik container. Creating new traefik container...");
 				const traefikDir = new Path("/etc/traefik/");
+
+				throw "Should not be here"; // FIXME
 				
 				// init and start traefik container
 				if (!traefikDir.fs_exists)
@@ -249,6 +251,8 @@ export type AdvancedUIXContainerOptions = {
 
 	// custom workbench container init
 	override async handleInit() {
+		if (!this.logger)
+			this.logger = new Logger(this);
 		// setup network
 		await this.handleNetwork()
 

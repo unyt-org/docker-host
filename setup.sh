@@ -6,7 +6,7 @@ if ! [ -x "$(command -v git)" ]; then
 fi
 
 if ! [ -x "$(command -v docker)" ]; then
-	echo "docker must be installed"
+	echo "Docker must be installed"
 	exit 1
 fi
 
@@ -45,7 +45,7 @@ mkdir -p $HOME/.unyt-docker-host/
 
 DIR=$HOME/.unyt-docker-host/$ENDPOINT
 GIT_ORIGIN=https://github.com/unyt-org/docker-host.git
-SERVICE_NAME=$(systemd-escape "unyt_docker_host_$ENDPOINT")
+SERVICE_NAME=$(systemd-escape "docker_host_$(echo "$ENDPOINT" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9_]/_/g')")
 DENO_DIR=$(which deno)
 
 # clone git repo
@@ -83,7 +83,7 @@ systemctl daemon-reload
 systemctl enable $SERVICE_NAME
 systemctl start $SERVICE_NAME
 
-echo "Docker host running"
+echo "Docker host is running"
 echo "\nCheck status:"
 echo "    systemctl status $SERVICE_NAME"
 echo "    journalctl -u $SERVICE_NAME"

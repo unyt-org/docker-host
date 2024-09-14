@@ -7,4 +7,4 @@ export type Config = {
 	allowArbitraryDomains: boolean // Allow arbitrary domains to be used (otherwise, only unyt.app domains can be used)
 }
 
-export const config = await datex.get<Config>("./config.dx")
+export const config = await datex.get<Config>("../config.dx")

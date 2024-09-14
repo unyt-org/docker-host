@@ -2,9 +2,41 @@ import { logger, ESCAPE_SEQUENCES } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 import { Path } from "unyt_core/utils/path.ts";
-import { config } from "../../config.ts";
+import { config } from "../config.ts";
 import Container from "./Container.ts";
 import RemoteImageContainer from "./RemoteImageContainer.ts";
+import { ContainerStatus } from "./Types.ts";
+import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
+import { ContainerManager } from "../../main.ts";
+
+const publicServerIP = await getIP({ipv6: false});
+const defaulTraefikToml = `
+[entryPoints]
+  [entryPoints.web]
+  address = ":80"
+
+  [entryPoints.web-secure]
+  address = ":443"
+
+[api]
+  dashboard = true
+
+[providers.docker]
+  endpoint = "unix:///var/run/docker.sock"
+  exposedByDefault = false
+  network = "main"
+
+[certificatesresolvers.myhttpchallenge.acme]
+    caserver = "https://acme-v02.api.letsencrypt.org/directory"
+    email = "postmaster@unyt.org"
+    [certificatesresolvers.myhttpchallenge.acme.httpchallenge] 
+    entrypoint = "web"
+`;
+
+export type AdvancedUIXContainerOptions = {
+	importMapPath?: string, 
+	uixRunPath?: string
+};
 
 @sync export default class UIXAppContainer extends Container {
 
@@ -23,7 +55,19 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
-	async construct(owner: Datex.Endpoint, endpoint: Datex.Endpoint, gitURL: string, branch?: string, stage = 'prod', domains?: Record<string, number>, env?:string[], args?:string[], persistentVolumePaths?: string[], gitOAuthToken?: string, advancedOptions?: AdvancedUIXContainerOptions) {
+	// @ts-ignore $
+	async construct(
+		owner: Datex.Endpoint,
+		endpoint: Datex.Endpoint,
+		gitURL: string,
+		branch?: string,
+		stage = 'prod',
+		domains?: Record<string, number>,
+		env?:string[],
+		args?:string[],
+		persistentVolumePaths?: string[],
+		gitOAuthToken?: string,
+		advancedOptions?: AdvancedUIXContainerOptions) {
 		super.construct(owner)
 
 		// validate domains
@@ -147,7 +191,7 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 						await datex `@+unyt-dns-1.DNSManager.addARecord(${domain}, ${publicServerIP})`
 						this.logger.success("Successfully set DNS entry for " + domain);
 					}
-					catch (e) {
+					catch {
 						this.logger.error("Error setting DNS entry for " + domain);
 						this.errorMessage = `Could not set DNS entry for ${domain} (Internal error)`;
 						this.status = ContainerStatus.FAILED;
@@ -196,7 +240,7 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 	}
 
 	// custom workbench container init
-	override async handleInit(){
+	override async handleInit() {
 		// setup network
 		await this.handleNetwork()
 
@@ -204,17 +248,16 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer, properties: {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
-		}})
+		}});
 		for (const existingContainer of existingContainers) {
 			this.logger.error("removing existing container", existingContainer)
 			await existingContainer.remove()
 		}
 
-		this.image = this.container_name
+		this.image = this.container_name;
 
 		try {
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
-
 			this.logger.info("image: " + this.image);
 			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);
 			this.logger.info("branch: " + this.branch);
@@ -239,7 +282,6 @@ import RemoteImageContainer from "./RemoteImageContainer.ts";
 				await execCommand(`git clone --depth 1 --single-branch --branch ${this.branch} --recurse-submodules ${this.gitHTTPS} ${repoPath}`, true)
 			}
 			catch (e) {
-
 				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
 				if (this.gitHTTPS.username === "oauth2") {
@@ -404,7 +446,7 @@ Host ${this.uniqueGitHostName}
 	}
 
 
-	override async handleOnline(){
+	override async handleOnline() {
 		// wait until endpoint inside container is reachable
 		this.logger.info("Waiting for "+this.endpoint+" to come online");
 		let iterations = 0;

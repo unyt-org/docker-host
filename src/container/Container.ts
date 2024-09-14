@@ -3,11 +3,11 @@ import { Datex } from "unyt_core/mod.ts";
 import { ContainerStatus } from "./Types.ts";
 import { containers } from "../../main.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
+
 const logger = new Datex.Logger("Container");
 
 // parent class for all types of containers
 @sync export default class Container {
-
 	protected logger!: Datex.Logger;
 	#initialized = false;
 
@@ -82,13 +82,13 @@ const logger = new Datex.Logger("Container");
 		this.container_name = this.uniqueID();
 		this.logger = new Datex.Logger(this);
 	}
-	replicate(){
+	replicate() {
 		this.logger = new Datex.Logger(this);
 		this.#initialized = true;
 		this.updateAfterReplicate();
 	}
 
-	@property async start(){
+	@property async start() {
 		// start => RUNNING or FAILED
 		const running = await this.handleStart();
 		if (running) {
@@ -103,7 +103,7 @@ const logger = new Datex.Logger("Container");
 	}
 
 	// create docker for the first time
-	protected async init(){
+	protected async init() {
 		if (this.#initialized) return true;
 
 		// INITIALIZING ...
@@ -124,33 +124,30 @@ const logger = new Datex.Logger("Container");
 		try {
 			const restartPolicy = "always"
 			await execCommand(`docker run --network=${this.network}${this.debugPort ? ` -p ${this.debugPort}:9229`:''} --log-opt max-size=10m -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
-		} catch (e) {
-			console.log(e);
+		} catch(error) {
 			this.logger.error("error while creating container");
+			this.logger.error(error);
 			return false;
 		}
 		return true;
 	}
 
-	protected updateAfterReplicate(){
+	protected updateAfterReplicate() {
 		// continue start/stop if in inbetween state
 		if (this.status == ContainerStatus.STARTING) this.start();
 		else if (this.status == ContainerStatus.STOPPING) this.stop();
 	}
 
-	protected async handleStart(){
+	protected async handleStart() {
 		// first init docker container (if not yet initialized)
 		if (!await this.init()) return false;
-
 		this.logger.info("Starting Container " + this.container_name);
-
 		await this.onBeforeStart();
-
-		if (this.status == ContainerStatus.FAILED) return false;
+		if (this.status == ContainerStatus.FAILED)
+			return false;
 
 		// STARTING ...
 		this.status = ContainerStatus.STARTING;
-
 		// start the container
 		try {
 			await execCommand(`docker container start ${this.container_name}`)
@@ -225,7 +222,7 @@ const logger = new Datex.Logger("Container");
 		return stream;
 	}
 
-	public async remove(){
+	public async remove() {
 		// remove from containers list
 		containers.getAuto(this.owner).delete(this);
 		await Container.removeContainer(this.container_name);
@@ -233,12 +230,12 @@ const logger = new Datex.Logger("Container");
 		return true;
 	}
 
-	private async isRunning(){
+	private async isRunning() {
 		try {
 			const ps = await execCommand(`docker ps | grep ${this.container_name}`);
 			return !!ps;
 		} catch (e) {
-			console.log("err:",e)
+			this.logger.error(e);
 			return false
 		}
 	}

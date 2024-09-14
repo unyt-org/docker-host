@@ -1,6 +1,6 @@
 import { logger } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
-import { EndpointConfig } from "../../endpoint-config.ts";
+import { EndpointConfig } from "../endpoint-config.ts";
 import Container from "./Container.ts";
 
 @sync export default class WorkbenchContainer extends Container {
@@ -14,7 +14,7 @@ import Container from "./Container.ts";
 	}
 
 	// custom workbench container init
-	override async handleInit(){
+	override async handleInit() {
 		try {
 			const username = "user"; // TODO other usernames?
 			const config_exported = Datex.Runtime.valueToDatexString(this.config, true, true, true);

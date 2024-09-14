@@ -4,9 +4,9 @@ import { EndpointConfig } from "../endpoint-config.ts";
 import Container from "./Container.ts";
 
 @sync export default class WorkbenchContainer extends Container {
-
 	@property config!: EndpointConfig
 
+	// @ts-ignore $
 	override construct(owner: Datex.Endpoint, config: EndpointConfig) {
 		super.construct(owner)
 		this.config = config;
@@ -35,29 +35,26 @@ import Container from "./Container.ts";
 	
 			// remove tmp directory
 			await execCommand(`rm -r ${tmp_dir}`);
-		}
-
-		catch (e) {
-			console.log(e)
+		} catch (e) {
+			this.logger.error(e);
 			this.logger.error("Error initializing workbench container");
 			return false;
 		}
-
 		return super.handleInit();
 	}
 
 	override async handleOnline() {
 		await sleep(6000);
 		try {
-			await Datex.Supranet.pingEndpoint(this.config.endpoint);
-		}
-		catch (e) {
-			this.logger.error("Workbench Endpoint not reachable")
+			if (!await this.config.endpoint.isOnline())
+				throw new Error("Endpoint not reachable");
+		} catch (e) {
+			this.logger.error("Workbench Endpoint not reachable");
+			this.logger.error(e);
 			await this.stop(); // stop container again for consistant container state
 			return false;
 		}
 		this.logger.success("Workbench Endpoint is reachable");
 		return true;
 	}
-
 }

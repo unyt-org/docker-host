@@ -39,20 +39,17 @@ export type AdvancedUIXContainerOptions = {
 };
 
 @sync export default class UIXAppContainer extends Container {
-
-	@property branch?:string
-	@property gitSSH!:string
-	@property gitHTTPS!:URL
-	@property stage!:string
-	@property domains!:Record<string, number> // domain name -> internal port
-	@property endpoint!:Datex.Endpoint
-	@property advancedOptions?: AdvancedUIXContainerOptions
-
+	@property branch?: string;
+	@property gitSSH!: string;
+	@property gitHTTPS!: URL;
+	@property stage!: string;
+	@property domains!: Record<string, number>; // domain name -> internal port
+	@property endpoint!: Datex.Endpoint;
+	@property advancedOptions?: AdvancedUIXContainerOptions;
 	@property args?: string[]
 
 	// use v.0.1
 	isVersion1 = false;
-
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
 	// @ts-ignore $
@@ -125,7 +122,7 @@ export type AdvancedUIXContainerOptions = {
 		
 		this.isVersion1 = !! env?.includes("UIX_VERSION=0.1")
 
-		if (this.isVersion1) console.log("using UIX v0.1")
+		if (this.isVersion1) this.logger.info("using UIX v0.1")
 
 		// inject environment variables
 		for (const envVar of env??[]) {
@@ -150,10 +147,10 @@ export type AdvancedUIXContainerOptions = {
 			// has traefik?
 			try {
 				await execCommand(`docker container ls | grep traefik`)
-				console.log("has traefik container");
+				this.logger.info("has traefik container");
 			}
 			catch {
-				console.log("no traefik container detected, creating a new traefik container");
+				this.logger.info("no traefik container detected, creating a new traefik container");
 				const traefikDir = new Path("/etc/traefik/");
 				
 				// init and start traefik container
@@ -292,10 +289,10 @@ export type AdvancedUIXContainerOptions = {
 				let sshKey: string|undefined;
 				try {
 					sshKey = await this.tryGetSSHKey();
-					console.log("ssh public key: " + sshKey)
+					this.logger.info("ssh public key: " + sshKey)
 				}
 				catch (e) {
-					console.log("Failed to generate ssh key: ", e)
+					this.logger.info("Failed to generate ssh key: ", e)
 				}
 
 				// try clone with ssh
@@ -303,7 +300,7 @@ export type AdvancedUIXContainerOptions = {
 					await execCommand(`git clone --depth 1 --recurse-submodules ${sshKey ? this.gitSSH.replace(this.gitHTTPS.hostname, this.uniqueGitHostName) : this.gitSSH} ${repoPath}`, true)
 				}
 				catch (e) {
-					console.log(e)
+					this.logger.error(e);
 
 					let errorMessage = `Could not clone git repository ${this.gitSSH}. Please make sure the repository is accessible by ${Datex.Runtime.endpoint.main}. You can achieve this by doing one of the following:\n\n`
 
@@ -365,14 +362,10 @@ export type AdvancedUIXContainerOptions = {
 
 			// // add volume for host data, available in /app/hostdata
 			// this.addVolumePath('/root/data', '/app/hostdata')
-		}
-
-		catch (e) {
-			console.log("error", e);
-			// this.logger.error("Error initializing UIX container");
+		} catch (e) {
+			this.logger.error(e);
 			return false;
 		}
-
 		return super.handleInit();
 	}
 
@@ -422,8 +415,6 @@ Host ${this.uniqueGitHostName}
 			// return public key
 			return await Deno.readTextFile(keyPath+".pub");
 		}
-
-		
 	}
 
 	private async getDockerFileContent() {

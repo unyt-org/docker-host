@@ -8,11 +8,8 @@ import RemoteImageContainer from "./src/container/RemoteImageContainer.ts";
 import UIXAppContainer, { AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import WorkbenchContainer from "./src/container/WorkbenchContainer.ts";
 
-
-const logger = new Datex.Logger("docker host");
-
+const logger = new Datex.Logger("Docker Host");
 logger.info("Config: ", config);
-
 await Datex.Supranet.connect();
 
 @endpoint @entrypointProperty export class ContainerManager {
@@ -115,6 +112,6 @@ await Datex.Supranet.connect();
 }
 
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
-logger.info(containers.size + " containers in cache")
+logger.info(`Found ${containers.size} containers in cache.`);
 
-await ContainerManager.createRemoteImageContainer("ubuntu")
+await ContainerManager.createRemoteImageContainer("ubuntu");

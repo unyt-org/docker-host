@@ -1,6 +1,6 @@
 # Docker Host
 
-Creates and manages docker containers (e.g. UIX Apps).
+Creates and manages Docker containers for UIX deployment.
 Containers can be created via a DATEX interface.
 
 ## Setup
@@ -8,7 +8,6 @@ A docker host instance can be created by running the `setup.sh` script:
 ```shell
 curl -s https://raw.githubusercontent.com/unyt-org/docker-host/master/setup.sh | bash -s @+YOUR_DOCKER_HOST
 ```
-
 
 ## Deploying a UIX app
 
@@ -31,6 +30,7 @@ location: stage {
 use ContainerManager from @+YOUR_DOCKER_HOST;
 
 ref container = ContainerManager.createUIXAppContainer(
+	"secret", // Optional access token if configured so
 	"git@github.com:benStre/xam.git", // git origin for the UIX app 
 	"main", // branch name
 	@+my_app_deployment, // endpoint for the deployment stage
@@ -42,12 +42,10 @@ ref container = ContainerManager.createUIXAppContainer(
 print container.status // current container status
 ```
 
-
-
 ## Create a new Workbench (Development) Container
 ```datex
 use ContainerManager from @+YOUR_DOCKER_HOST;
 
-container = ContainerManager.createWorkbenchContainer();
+container = ContainerManager.createWorkbenchContainer(token);
 container.start()
 ```

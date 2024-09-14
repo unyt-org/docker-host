@@ -1,6 +1,6 @@
 // deno-lint-ignore-file require-await
 import { EndpointConfig } from "./src/endpoint-config.ts";
-import { Datex, property } from "unyt_core/datex.ts";
+import { Datex, f, property } from "unyt_core/datex.ts";
 import { Class } from "unyt_core/utils/global_types.ts";
 import { config } from "./src/config.ts";
 import Container from "./src/container/Container.ts";
@@ -38,7 +38,6 @@ await Datex.Supranet.connect();
 
 		// link container to requesting endpoint
 		this.addContainer(sender, container as unknown as Container);
-
 		return container;
 	}
 
@@ -70,7 +69,12 @@ await Datex.Supranet.connect();
 		gitAccessToken?: string,
 		advancedOptions?: AdvancedUIXContainerOptions): Promise<UIXAppContainer> {
 		const sender = datex.meta!.caller;
-		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
+		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch);
+
+		try { new URL(gitURL); }
+		catch {
+			throw new Error("The URL seems to be no valid URL");
+		}
 
 		// init and start RemoteImageContainer
 		// @ts-ignore $
@@ -118,3 +122,8 @@ export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Date
 logger.info(`Found ${containers.size} containers in cache.`);
 
 // await ContainerManager.createRemoteImageContainer("hello-world");
+await ContainerManager.createUIXAppContainer(
+	"https://github.com/unyt-org/blog",
+	"main",
+	f("@test123")
+);

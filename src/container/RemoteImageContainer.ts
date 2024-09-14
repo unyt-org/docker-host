@@ -22,8 +22,8 @@ import { executeDocker } from "../CMD.ts";
 				throw new Error(`Could not pull image with name ${this.image}`);
 			await executeDocker([
 				"pull",
-				`\"${this.image}\"`
-			]);
+				this.image
+			], false);
 			this.logger.success(`Successfully pulled remote image ${this.image}`);
 		} catch (e) {
 			this.logger.error(e);

@@ -8,7 +8,7 @@ export async function executeDocker(args: string[], output = true) {
 		status = (await new Deno.Command(
 			"docker",
 			{
-				stderr: output ? "inherit" : "null",
+				stderr: "inherit",
 				stdout: output ? "inherit" : "null",
 				args
 			}

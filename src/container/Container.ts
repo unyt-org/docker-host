@@ -138,11 +138,10 @@ const logger = new Datex.Logger("Container");
 				...this.getFormattedEnvVariables(),
 				...this.getFormattedLabels(),
 				this.image
-			]);
+			], false);
 			this.logger.success(`Running docker ${this.container_name}...`);
 		} catch(error) {
-			this.logger.error("error while creating container");
-			this.logger.error(error);
+			this.logger.error("Could not create container", error);
 			return false;
 		}
 		return true;
@@ -157,7 +156,7 @@ const logger = new Datex.Logger("Container");
 	protected async handleStart() {
 		// first init docker container (if not yet initialized)
 		if (!await this.init()) return false;
-		this.logger.info("Starting Container " + this.container_name);
+		this.logger.info("Starting Container", this.container_name);
 		await this.onBeforeStart();
 		if (this.status == ContainerStatus.FAILED)
 			return false;
@@ -170,12 +169,11 @@ const logger = new Datex.Logger("Container");
 				"container",
 				"start",
 				this.container_name
-			]);;
+			], false);
 		} catch (error) {
 			this.logger.error("error while starting container", error);
 			return false;
 		}
-
 		await sleep(2000);
 
 		// check if container is running
@@ -223,7 +221,7 @@ const logger = new Datex.Logger("Container");
 			args: [
 				"logs",
 				"--follow",
-				`"${this.container_name}"`
+				this.container_name
 			],
 			stdout: "piped",
 			stderr: "piped"
@@ -315,7 +313,7 @@ const logger = new Datex.Logger("Container");
 				"rm",
 				"-f",
 				name
-			]);
+			], false);
 		} catch (e) {
 			logger.error("Could not remove container", e);
 			return false;
@@ -329,7 +327,7 @@ const logger = new Datex.Logger("Container");
 				"rm",
 				"-f",
 				name
-			]);
+			], false);
 		} catch (e) {
 			logger.error("Could not remove image", e);
 			return false;

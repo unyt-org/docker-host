@@ -66,7 +66,7 @@ export type AdvancedUIXContainerOptions = {
 		persistentVolumePaths?: string[],
 		gitOAuthToken?: string,
 		advancedOptions?: AdvancedUIXContainerOptions) {
-		super.construct(owner)
+		super.construct(owner);
 
 		// validate domains
 		for (const domain of Object.keys(domains ?? {})) {
@@ -252,9 +252,9 @@ export type AdvancedUIXContainerOptions = {
 	// custom workbench container init
 	override async handleInit() {
 		if (!this.logger)
-			this.logger = new Logger(this);
+			this.logger = new Logger(this); // FIXME why is this an issue?
 		// setup network
-		await this.handleNetwork()
+		await this.handleNetwork();
 
 		// remove any existing previous container
 		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer as unknown as Datex.Class<Container>, properties: {
@@ -267,6 +267,16 @@ export type AdvancedUIXContainerOptions = {
 		}
 		this.image = this.container_name;
 		try {
+			console.log(
+				this,
+				this.image,
+				this.gitHTTPS,
+				this.gitSSH,
+				this.volumes,
+				this.branch,
+				this.endpoint,
+				this.advancedOptions
+			)
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 			this.logger.info("image: " + this.image);
 			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);

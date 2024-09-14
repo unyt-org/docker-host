@@ -26,33 +26,29 @@ await Datex.Supranet.connect();
 		config.endpoint = Datex.Endpoint.getNewEndpoint();
 
 		// init and start WorkbenchContainer
+		// @ts-ignore $
 		const container = new WorkbenchContainer(sender, config);
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(sender, container);
+		this.addContainer(sender, container as unknown as Container);
 
 		return container;
 	}
 
-	@property static async createRemoteImageContainer(url: string | URL): Promise<RemoteImageContainer>{
+	@property static async createRemoteImageContainer(name: string): Promise<RemoteImageContainer>{
 		const sender = datex.meta!.caller;
-		if (!sender)
-			throw new Error("Could not determine sender");
-		if (!url || typeof url !== "string")
-			throw new Error("Could not determine url");
-		logger.info("Creating new Remote Image Container for " + sender, url);
-		
+		if (!name || typeof name !== "string" || name.length < 2 || name.length > 50 || !/^[a-z\.-\/#%?=0-9:&]+$/gi.test(name))
+			throw new Error(`Can not create remote image container with name '${name}'`);
+		logger.info(`Creating new Remote Image Container '${name}' for`, sender);
+
 		// init and start RemoteImageContainer
-		const container = new RemoteImageContainer(sender, url);
-
-		if (true)
-			return;
-
+		// @ts-ignore $
+		const container = new RemoteImageContainer(sender, name);
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(sender, container);
+		this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 
@@ -71,12 +67,13 @@ await Datex.Supranet.connect();
 		console.log("Creating new UIX App Container for " + sender, gitURL, branch, env);
 
 		// init and start RemoteImageContainer
+		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
 		container.start();
 		await sleep(2000); // wait for immediate status updates
 
 		// link container to requesting endpoint
-		this.addContainer(sender, container);
+		this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 
@@ -114,4 +111,4 @@ await Datex.Supranet.connect();
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info(`Found ${containers.size} containers in cache.`);
 
-await ContainerManager.createRemoteImageContainer("ubuntu");
+await ContainerManager.createRemoteImageContainer("http://registry.hub.docker.com/library/busybox?y=0&x=1");

@@ -17,11 +17,9 @@ import Container from "./Container.ts";
 	// update docker image
 	@property async update() {
 		try {
-			if (this.image.includes('"'))
-				throw new Error("Invalid image name");
 			await new Deno.Command("docker", { args: ["pull", `\"${this.image}\"`] }).output();
 		} catch (e) {
-			console.log(e)
+			this.logger.error(e);
 			this.logger.error("Error initializing remote image container");
 			return false;
 		}

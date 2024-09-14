@@ -14,8 +14,10 @@ logger.info("Starting up Docker Host with config:", config);
 await Datex.Supranet.connect();
 
 const ensureToken = (token?: string) => {
-	if (config.token && config.token.length && config.token !== token)
+	if (config.token && config.token.length && config.token !== token) {
+		logger.error(`Got request with invalid or missing access token "${token ?? "none"}"`);
 		throw new Error("Invalid access token");
+	}
 }
 
 @endpoint @entrypointProperty export class ContainerManager {

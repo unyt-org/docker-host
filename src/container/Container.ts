@@ -1,7 +1,7 @@
 // deno-lint-ignore-file require-await
 import { Datex } from "unyt_core/mod.ts";
 import { ContainerStatus } from "./Types.ts";
-import { containers, execCommand } from "../../main.ts";
+import { containers } from "../../main.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 import { executeDocker, executeShell } from "../CMD.ts";
 
@@ -42,7 +42,7 @@ const logger = new Datex.Logger("Container");
 	}
 
 	async addVolume(name: string, path: string) {
-		await execCommand(`docker volume create ${name}`)
+		await executeDocker(["volume", "create", name], false)
 		this.#volumes[name] = path;
 	}
 
@@ -71,11 +71,8 @@ const logger = new Datex.Logger("Container");
 		return Object.entries(this.#volumes).map(([name, path]) => ["-v", `${name}:${path}`]).flat();
 	}
 
-	uniqueID(size = 4) {
-		return new Array(size).fill('xxxx').join('-').replace(/[xy]/g, function(c) {
-			const r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
-			return v.toString(16);
-		});
+	uniqueID(size = 16) {
+		return crypto.randomUUID().replaceAll("-", "").slice(0, size);
 	}
 
 	construct(owner: Datex.Endpoint) {

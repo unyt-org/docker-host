@@ -161,7 +161,7 @@ export type AdvancedUIXContainerOptions = {
 		if (config.enableTraefik) {
 			// has traefik?
 			try {
-				await executeShell(["docker", "ls", "|", "grep", "traefik"]);
+				await executeShell(["docker", "ps", "|", "grep", "traefik"]);
 				this.logger.success("Found existing traefik container");
 			} catch {
 				this.logger.info("Could not detect existing traefik container. Creating new traefik container...");
@@ -185,7 +185,6 @@ export type AdvancedUIXContainerOptions = {
 				traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
 				traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
 				traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
-
 				traefikContainer.start();
 				logger.success("Created traefik container", traefikContainer);
 			}
@@ -254,7 +253,7 @@ export type AdvancedUIXContainerOptions = {
 		await this.handleNetwork()
 
 		// remove any existing previous container
-		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer, properties: {
+		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer as unknown as Datex.Class<Container>, properties: {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}});
@@ -281,7 +280,7 @@ export type AdvancedUIXContainerOptions = {
 			try {
 				// TODO add for GitLab
 				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
-			} catch {}
+			} catch { /* */}
 
 			// try clone with https first
 			try {
@@ -444,7 +443,7 @@ export type AdvancedUIXContainerOptions = {
 			let existingConfig = "";
 			try {
 				existingConfig = await Deno.readTextFile(`${homeDir}/.ssh/config`);
-			} catch {}
+			} catch {/* pass */}
 			await Deno.writeTextFile(`${homeDir}/.ssh/config`, `${existingConfig}
 
 Host ${this.uniqueGitHostName}

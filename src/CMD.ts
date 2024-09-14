@@ -8,6 +8,7 @@ async function executeCommand(command: string, args: string[], output = true) {
 		status = (await new Deno.Command(
 			command,
 			{
+				cwd: Deno.cwd(),
 				stderr: "inherit",
 				stdout: output ? "inherit" : "null",
 				args
@@ -33,6 +34,7 @@ export async function executeShell(args: string[], output = true) {
 	let status = false;
 	try {
 		status = (await new Deno.Command("sh", {
+			cwd: Deno.cwd(),
 			args: ["-c", args.join(" ")],
 			stderr: output ? "inherit" : "null",
 			stdout: output ? "inherit" : "null"

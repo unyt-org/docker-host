@@ -2,7 +2,8 @@ import { logger } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { EndpointConfig } from "../endpoint-config.ts";
 import Container from "./Container.ts";
-import { execCommand } from "../../main.ts";
+import {copy} from "https://deno.land/std@0.224.0/fs/copy.ts";
+import { executeDocker } from "../CMD.ts";
 
 @sync export default class WorkbenchContainer extends Container {
 	@property config!: EndpointConfig
@@ -27,15 +28,21 @@ import { execCommand } from "../../main.ts";
 			logger.info("username: " + username);
 	
 			// create new config directory to copy to docker
-			const tmp_dir = `res/config-files-${new Date().getTime()}`
-			await execCommand(`cp -r ./res/config-files ${tmp_dir}`);
+			const tmp_dir = "./res/config-files";
+			await copy(tmp_dir, `./res/config-files-${crypto.randomUUID()}`, { overwrite: true });
 			await Deno.writeTextFile(`${tmp_dir}/endpoint.dx`, config_exported)
 			
 			// create docker container
-			await execCommand(`docker build --build-arg username=${username} --build-arg configpath=${tmp_dir} -f ./res/Dockerfile -t ${this.image} .`)
-	
+			await executeDocker([
+				"build",
+				"--build-arg", `username=${username}`,
+				"--build-arg", `configpath=${tmp_dir}`,
+				"-f", "./res/Dockerfile",
+				"-t", this.image,
+				"."
+			]);
 			// remove tmp directory
-			await execCommand(`rm -r ${tmp_dir}`);
+			Deno.remove(tmp_dir, { recursive: true });
 		} catch (e) {
 			this.logger.error(e);
 			this.logger.error("Error initializing workbench container");

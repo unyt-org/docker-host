@@ -1,18 +1,12 @@
 // deno-lint-ignore-file require-await
 import { EndpointConfig } from "./src/endpoint-config.ts";
-import { Datex, f, property } from "unyt_core/datex.ts";
+import { Datex, property } from "unyt_core/datex.ts";
 import { Class } from "unyt_core/utils/global_types.ts";
 import { config } from "./src/config.ts";
 import Container from "./src/container/Container.ts";
 import RemoteImageContainer from "./src/container/RemoteImageContainer.ts";
 import UIXAppContainer, { AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import WorkbenchContainer from "./src/container/WorkbenchContainer.ts";
-
-localStorage.clear();
-
-export const execCommand = async (...args: any[]) => {
-	console.log("exec", args);
-}
 
 const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
@@ -118,10 +112,3 @@ await Datex.Supranet.connect();
 
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info(`Found ${containers.size} containers in cache.`);
-
-// await ContainerManager.createRemoteImageContainer("hello-world");
-await ContainerManager.createUIXAppContainer(
-	"https://github.com/unyt-org/blog",
-	"main && test",
-	f("@test123")
-);

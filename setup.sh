@@ -83,10 +83,10 @@ systemctl daemon-reload
 systemctl enable $SERVICE_NAME
 systemctl start $SERVICE_NAME
 
-echo "Docker host is running"
-echo "\nCheck status:"
+echo "Docker host '$ENDPOINT' is running"
+echo -e "\nCheck status:"
 echo "    systemctl status $SERVICE_NAME"
 echo "    journalctl -u $SERVICE_NAME"
-echo "\n"
+echo -e "\n"
 
 systemctl status $SERVICE_NAME

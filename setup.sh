@@ -45,12 +45,12 @@ mkdir -p $HOME/.unyt-docker-host/
 
 DIR=$HOME/.unyt-docker-host/$ENDPOINT
 GIT_ORIGIN=https://github.com/unyt-org/docker-host.git
-SERVICE_NAME=$(systemd-escape "docker_host_$(echo "$ENDPOINT" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9_]/_/g')")
+SERVICE_NAME=$(systemd-escape "unyt_$(echo "$ENDPOINT" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9_]/_/g')")
 DENO_DIR=$(which deno)
 
 # clone git repo
 echo "Cloning git repo to $DIR ..."
-git clone $GIT_ORIGIN $DIR
+git clone -b v2 $GIT_ORIGIN $DIR
 
 # rename endpoint
 echo "endpoint: $ENDPOINT" > "$DIR/.dx"

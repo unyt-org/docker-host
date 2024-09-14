@@ -12,14 +12,19 @@ const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
 await Datex.Supranet.connect();
 
-localStorage.clear()
+const ensureToken = (token?: string) => {
+	if (config.token && config.token.length && config.token !== token)
+		throw new Error("Invalid access token");
+}
 
 @endpoint @entrypointProperty export class ContainerManager {
-	@property static async getContainers(token?: string): Promise<Set<Container>>{
+	@property static async getContainers(token?: string): Promise<Set<Container>> {
+		ensureToken(token);
 		return containers.getAuto(datex.meta!.caller);
 	}
 
-	@property static async createWorkbenchContainer(token?: string): Promise<WorkbenchContainer>{
+	@property static async createWorkbenchContainer(token?: string): Promise<WorkbenchContainer> {
+		ensureToken(token);
 		const sender = datex.meta!.caller;
 		logger.info("Creating new Workbench Container for " + sender);
 
@@ -37,7 +42,8 @@ localStorage.clear()
 		return container;
 	}
 
-	@property static async createRemoteImageContainer(token: string, name: string): Promise<RemoteImageContainer>{
+	@property static async createRemoteImageContainer(token: string, name: string): Promise<RemoteImageContainer> {
+		ensureToken(token);
 		const sender = datex.meta!.caller;
 		if (!name || typeof name !== "string" || name.length < 2 || name.length > 80 || !/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(name))
 			throw new Error(`Can not create remote image container with name '${name}'`);
@@ -65,6 +71,7 @@ localStorage.clear()
 		persistentVolumePaths?: string[],
 		gitAccessToken?: string,
 		advancedOptions?: AdvancedUIXContainerOptions): Promise<UIXAppContainer> {
+		ensureToken(token);
 		const sender = datex.meta!.caller;
 		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch);
 
@@ -110,10 +117,14 @@ localStorage.clear()
 		}
 		return matches;
 	}
-
 }
 
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info(`Found ${containers.size} containers in cache.`);
-
-await ContainerManager.createWorkbenchContainer()
+logger.success("Docker Host is running");
+// await ContainerManager.createUIXAppContainer(
+// 	"access",
+// 	"https://github.com/unyt-org/blog",
+// 	"main",
+// 	f("@dfdfdf")
+// );

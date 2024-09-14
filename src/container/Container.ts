@@ -17,9 +17,6 @@ const logger = new Datex.Logger("Container");
 	@property container_name = "Container"
 	@property name = "Container"
 	@property id = '0';
-
-	network = "main"
-
 	@property owner!: Datex.Endpoint
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
 	@property errorMessage?: string
@@ -29,20 +26,21 @@ const logger = new Datex.Logger("Container");
 	#env: Record<string,string> = {}
 	#volumes: Record<string,string> = {}
 
+	network = "main"
 	debugPort: string|null = null
 
-	get volumes() {return this.#volumes}
+	get volumes() {return this.#volumes;}
 
 	addLabel(label: string) {
-		this.#labels.push(label)
+		this.#labels.push(label);
 	}
 
 	formatVolumeName(name: string) {
-		return name.replace(/[^a-zA-Z0-9_.-]/g, '-')
+		return name.replace(/[^a-zA-Z0-9_.-]/g, '-');
 	}
 
 	async addVolume(name: string, path: string) {
-		await executeDocker(["volume", "create", name], false)
+		await executeDocker(["volume", "create", name], false);
 		this.#volumes[name] = path;
 	}
 
@@ -102,18 +100,19 @@ const logger = new Datex.Logger("Container");
 
 	// create docker for the first time
 	protected async init() {
-		if (this.#initialized) return true;
+		if (this.#initialized)
+			return true;
 
 		// INITIALIZING ...
 		this.status = ContainerStatus.INITIALIZING;
 
 		// STOPPED (default state) or FAILED
 		const initialized = await this.handleInit();
-		if (initialized) this.status = ContainerStatus.STOPPED;
+		if (initialized)
+			this.status = ContainerStatus.STOPPED;
 		else this.status = ContainerStatus.FAILED;
 
 		this.#initialized = initialized;
-
 		return initialized;
 	}
 

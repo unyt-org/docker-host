@@ -458,15 +458,21 @@ Host ${this.uniqueGitHostName}
 	}
 
 	private async getDockerFileContent() {
-		let dockerfile = await Deno.readTextFile(this.isVersion1 ? 
-			'./res/uix-app-docker/Dockerfile_v0.1' :
-			'./res/uix-app-docker/Dockerfile');
+		let dockerfile = await Deno.readTextFile(
+			this.isVersion1 ? 
+				'./res/uix-app-docker/Dockerfile_v0.1' :
+				'./res/uix-app-docker/Dockerfile'
+		);
 
 		// add uix run args + custom importmap/run path
 		dockerfile = dockerfile
 			.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
-			.replace("{{IMPORTMAP_PATH}}", this.advancedOptions?.importMapPath ?? 'https://dev.cdn.unyt.org/importmap_compat.json')
-			.replace("{{UIX_RUN_PATH}}", this.advancedOptions?.uixRunPath ?? 'https://cdn.unyt.org/uix@0.1.x/run.ts')
+			.replace("{{IMPORTMAP_PATH}}", (
+				this.advancedOptions?.importMapPath ? new URL(this.advancedOptions.importMapPath).toString() : 'https://dev.cdn.unyt.org/importmap_compat.json'
+			))
+			.replace("{{UIX_RUN_PATH}}", (
+				this.advancedOptions?.uixRunPath ? new URL(this.advancedOptions.uixRunPath).toString() : 'https://cdn.unyt.org/uix@0.1.x/run.ts'
+			));
 
 		// expose port
 		if (this.debugPort)
@@ -476,19 +482,18 @@ Host ${this.uniqueGitHostName}
 		return dockerfile;
 	}
 
-
 	override async handleOnline() {
 		// wait until endpoint inside container is reachable
-		this.logger.info("Waiting for "+this.endpoint+" to come online");
+		this.logger.info(`Waiting for ${this.endpoint} to come online`);
 		let iterations = 0;
 		while (true) {
 			await sleep(2000);
 			if (await this.endpoint.isOnline()) {
-				this.logger.success("Endpoint "+this.endpoint+" is online");
+				this.logger.success(`Endpoint ${this.endpoint} is online`);
 				return true;
 			}
 			if (iterations++ > 20) {
-				this.logger.error("Endpoint "+this.endpoint+" not reachable")
+				this.logger.error(`Endpoint ${this.endpoint} not reachable"`)
 				return false;
 			}
 		}

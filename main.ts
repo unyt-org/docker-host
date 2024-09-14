@@ -71,6 +71,9 @@ await Datex.Supranet.connect();
 		const sender = datex.meta!.caller;
 		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch);
 
+		if (!branch || typeof branch !== "string" || branch.length < 2 || branch.length > 50 || !/^[a-z\.\-\/#0-9:&]+$/gi.test(branch))
+			throw new Error(`Can not create UIX App container with branch '${branch}'`);
+
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
@@ -119,6 +122,6 @@ logger.info(`Found ${containers.size} containers in cache.`);
 // await ContainerManager.createRemoteImageContainer("hello-world");
 await ContainerManager.createUIXAppContainer(
 	"https://github.com/unyt-org/blog",
-	"main",
+	"main && test",
 	f("@test123")
 );

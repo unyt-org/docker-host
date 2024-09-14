@@ -1,14 +1,13 @@
 FROM ubuntu
 
-
 RUN apt-get update && apt-get install -y \
-    software-properties-common \
+	software-properties-common \
 	curl\
 	lsof\
-    npm
+	npm
 RUN npm install npm -g && \
-    npm install n -g && \
-    n 18.7.0
+	npm install n -g && \
+	n 18.7.0
 RUN apt-get install -y \
 	wget \
 	git \
@@ -34,8 +33,6 @@ ARG username=user
 ARG configpath=res/config-files
 ENV username=${username}
 
-
-
 # add user
 RUN useradd -m -d /home/${username} ${username} -s /usr/bin/zsh
 
@@ -57,10 +54,6 @@ USER $username
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D"]
 
-
-
-
-
 WORKDIR /home/${username}
 
 
@@ -72,12 +65,6 @@ WORKDIR /home/${username}
 #LABEL traefik.http.routers.workbench-secured.rule="Host(`${UNYT_HOST}`)"
 #LABEL traefik.http.routers.workbench-secured.tls="true"
 #LABEL traefik.http.routers.workbench-secured.tls.certresolver="myhttpchallenge"
-
-
-
-
-
-
 
 # start endpoint
 ENTRYPOINT node /unyt-workbench/run.js /home/${username}/.unyt/endpoint.dx

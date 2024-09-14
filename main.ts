@@ -12,12 +12,14 @@ const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
 await Datex.Supranet.connect();
 
+localStorage.clear()
+
 @endpoint @entrypointProperty export class ContainerManager {
-	@property static async getContainers(): Promise<Set<Container>>{
+	@property static async getContainers(token?: string): Promise<Set<Container>>{
 		return containers.getAuto(datex.meta!.caller);
 	}
 
-	@property static async createWorkbenchContainer(): Promise<WorkbenchContainer>{
+	@property static async createWorkbenchContainer(token?: string): Promise<WorkbenchContainer>{
 		const sender = datex.meta!.caller;
 		logger.info("Creating new Workbench Container for " + sender);
 
@@ -35,7 +37,7 @@ await Datex.Supranet.connect();
 		return container;
 	}
 
-	@property static async createRemoteImageContainer(name: string): Promise<RemoteImageContainer>{
+	@property static async createRemoteImageContainer(token: string, name: string): Promise<RemoteImageContainer>{
 		const sender = datex.meta!.caller;
 		if (!name || typeof name !== "string" || name.length < 2 || name.length > 80 || !/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(name))
 			throw new Error(`Can not create remote image container with name '${name}'`);
@@ -52,6 +54,7 @@ await Datex.Supranet.connect();
 	}
 
 	@property static async createUIXAppContainer(
+		token: string,
 		gitURL: string,
 		branch: string,
 		endpoint: Datex.Endpoint,
@@ -112,3 +115,5 @@ await Datex.Supranet.connect();
 
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info(`Found ${containers.size} containers in cache.`);
+
+await ContainerManager.createWorkbenchContainer()

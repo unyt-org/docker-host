@@ -28,8 +28,8 @@ import { executeDocker } from "../CMD.ts";
 			logger.info("username: " + username);
 	
 			// create new config directory to copy to docker
-			const tmp_dir = "./res/config-files";
-			await copy(tmp_dir, `./res/config-files-${crypto.randomUUID()}`, { overwrite: true });
+			const tmp_dir = `./res/config-files-${crypto.randomUUID()}`;
+			await copy("./res/config-files", tmp_dir, { overwrite: true });
 			await Deno.writeTextFile(`${tmp_dir}/endpoint.dx`, config_exported)
 			
 			// create docker container
@@ -42,7 +42,7 @@ import { executeDocker } from "../CMD.ts";
 				"."
 			]);
 			// remove tmp directory
-			Deno.remove(tmp_dir, { recursive: true });
+			await Deno.remove(tmp_dir, { recursive: true });
 		} catch (e) {
 			this.logger.error(e);
 			this.logger.error("Error initializing workbench container");

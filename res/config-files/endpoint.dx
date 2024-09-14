@@ -1,7 +1,5 @@
-<unyt:endpoint-config>
-
-{
-	version: 1,
-	endpoint: @@010E52616CFD208F2D837611,
-	'expose-database': true
+<ext:EndpointConfig> {
+  version: void, 
+  endpoint: @@C9BCF134050000000070F566AF2C5C59, 
+  exposeDatabase: void
 }

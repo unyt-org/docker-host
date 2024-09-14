@@ -2,6 +2,7 @@ import { logger } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { EndpointConfig } from "../endpoint-config.ts";
 import Container from "./Container.ts";
+import { execCommand } from "../../main.ts";
 
 @sync export default class WorkbenchContainer extends Container {
 	@property config!: EndpointConfig

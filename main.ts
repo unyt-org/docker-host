@@ -1,6 +1,6 @@
 // deno-lint-ignore-file require-await
 import { EndpointConfig } from "./src/endpoint-config.ts";
-import { Datex, property } from "unyt_core";
+import { Datex, property } from "unyt_core/datex.ts";
 import { Class } from "unyt_core/utils/global_types.ts";
 import { config } from "./src/config.ts";
 import Container from "./src/container/Container.ts";
@@ -8,8 +8,14 @@ import RemoteImageContainer from "./src/container/RemoteImageContainer.ts";
 import UIXAppContainer, { AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import WorkbenchContainer from "./src/container/WorkbenchContainer.ts";
 
+localStorage.clear();
+
+export const execCommand = async (...args: any[]) => {
+	console.log("exec", args);
+}
+
 const logger = new Datex.Logger("Docker Host");
-logger.info("Config: ", config);
+logger.info("Starting up Docker Host with config:", config);
 await Datex.Supranet.connect();
 
 @endpoint @entrypointProperty export class ContainerManager {
@@ -38,7 +44,7 @@ await Datex.Supranet.connect();
 
 	@property static async createRemoteImageContainer(name: string): Promise<RemoteImageContainer>{
 		const sender = datex.meta!.caller;
-		if (!name || typeof name !== "string" || name.length < 2 || name.length > 50 || !/^[a-z\.-\/#%?=0-9:&]+$/gi.test(name))
+		if (!name || typeof name !== "string" || name.length < 2 || name.length > 80 || !/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(name))
 			throw new Error(`Can not create remote image container with name '${name}'`);
 		logger.info(`Creating new Remote Image Container '${name}' for`, sender);
 
@@ -53,7 +59,7 @@ await Datex.Supranet.connect();
 	}
 
 	@property static async createUIXAppContainer(
-		gitURL:string,
+		gitURL: string,
 		branch: string,
 		endpoint: Datex.Endpoint,
 		stage?: string,
@@ -111,4 +117,4 @@ await Datex.Supranet.connect();
 export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
 logger.info(`Found ${containers.size} containers in cache.`);
 
-await ContainerManager.createRemoteImageContainer("http://registry.hub.docker.com/library/busybox?y=0&x=1");
+// await ContainerManager.createRemoteImageContainer("hello-world");

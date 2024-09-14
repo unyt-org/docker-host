@@ -1,5 +1,6 @@
 import { Datex } from "unyt_core/mod.ts";
 import Container from "./Container.ts";
+import { executeDocker } from "../CMD.ts";
 
 @sync export default class RemoteImageContainer extends Container {
 	@property version?: string
@@ -11,16 +12,22 @@ import Container from "./Container.ts";
 		this.version = version;
 		this.url = url;
 		this.name = url;
-		this.image = `${this.url}${this.version?':'+this.version:''}`;
+		this.image = `${this.url}${this.version ? `:${this.version}` : ''}`;
 	}
 
 	// update docker image
 	@property async update() {
 		try {
-			await new Deno.Command("docker", { args: ["pull", `\"${this.image}\"`] }).output();
+			if (!/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(this.image))
+				throw new Error(`Could not pull image with name ${this.image}`);
+			await executeDocker([
+				"pull",
+				`\"${this.image}\"`
+			]);
+			this.logger.success(`Successfully pulled remote image ${this.image}`);
 		} catch (e) {
 			this.logger.error(e);
-			this.logger.error("Error initializing remote image container");
+			this.logger.error("Error pulling remote image");
 			return false;
 		}
 		return true;

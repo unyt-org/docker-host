@@ -1,8 +1,9 @@
 // deno-lint-ignore-file require-await
 import { Datex } from "unyt_core/mod.ts";
 import { ContainerStatus } from "./Types.ts";
-import { containers } from "../../main.ts";
+import { containers, execCommand } from "../../main.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
+import { executeDocker, executeShell } from "../CMD.ts";
 
 const logger = new Datex.Logger("Container");
 
@@ -54,20 +55,20 @@ const logger = new Datex.Logger("Container");
 	}
 
 	getFormattedLabels() {
-		return this.#labels.map(label => `--label ${label
-			.replaceAll('`', '\\`')
-			.replaceAll('(', '\\(')
-			.replaceAll(')', '\\)')
-		}`).join(" ")
+		return this.#labels.map(label => 
+			["--label", `${label.replaceAll('`', '\\`')
+								.replaceAll('(', '\\(')
+								.replaceAll(')', '\\)')}`
+			]).flat();
 	}
 	getFormattedPorts() {
-		return this.#ports.map(ports => `-p ${ports[1]}:${ports[0]}`).join(" ")
+		return this.#ports.map(ports => ["-p", `${ports[1]}:${ports[0]}`]).flat();
 	}
 	getFormattedEnvVariables() {
-		return Object.entries(this.#env).map(([name, value]) => `--env ${name}=${value}`).join(" ")
+		return Object.entries(this.#env).map(([name, value]) => ["--env", `${name}=${value}`]).flat();
 	}
 	getFormattedVolumes() {
-		return Object.entries(this.#volumes).map(([name, path]) => `-v ${name}:${path}`).join(" ")
+		return Object.entries(this.#volumes).map(([name, path]) => ["-v", `${name}:${path}`]).flat();
 	}
 
 	uniqueID(size = 4) {
@@ -122,8 +123,23 @@ const logger = new Datex.Logger("Container");
 
 	protected async handleInit() {
 		try {
-			const restartPolicy = "always"
-			await execCommand(`docker run --network=${this.network}${this.debugPort ? ` -p ${this.debugPort}:9229`:''} --log-opt max-size=10m -d --restart ${restartPolicy} --name ${this.container_name} ${this.getFormattedPorts()} ${this.getFormattedVolumes()} ${this.getFormattedEnvVariables()} ${this.getFormattedLabels()} ${this.image}`)
+			const restartPolicy = "always";
+			await executeDocker([
+				"run",
+				"--network", this.network,
+				...(this.debugPort ? [`-p`, `"${this.debugPort}:9229"`] : []),
+				"--log-opt",
+				"max-size=10m",
+				"-d",
+				"--restart", restartPolicy,
+				"--name", this.container_name,
+				...this.getFormattedPorts(),
+				...this.getFormattedVolumes(),
+				...this.getFormattedEnvVariables(),
+				...this.getFormattedLabels(),
+				this.image
+			]);
+			this.logger.success(`Running docker ${this.container_name}...`);
 		} catch(error) {
 			this.logger.error("error while creating container");
 			this.logger.error(error);
@@ -150,9 +166,13 @@ const logger = new Datex.Logger("Container");
 		this.status = ContainerStatus.STARTING;
 		// start the container
 		try {
-			await execCommand(`docker container start ${this.container_name}`)
-		} catch (e) {
-			this.logger.error("error while starting container")
+			await executeDocker([
+				"container",
+				"start",
+				this.container_name
+			]);;
+		} catch (error) {
+			this.logger.error("error while starting container", error);
 			return false;
 		}
 
@@ -160,15 +180,10 @@ const logger = new Datex.Logger("Container");
 
 		// check if container is running
 		const running = await this.isRunning();
-		if (running) {
+		if (running)
 			this.logger.success("Container is running")
-		}
-		else {
-			this.logger.error("Container is not running")
-			return false;
-		}
-
-		return true;
+		else this.logger.error("Container is not running")
+		return running;
 	}
 
 	protected onBeforeStart() {}
@@ -180,12 +195,14 @@ const logger = new Datex.Logger("Container");
 
 	@property async stop(force = true){
 		this.logger.info("Stopping Container " + this.container_name);
-
 		this.onBeforeStop();
-
 		this.status = ContainerStatus.STOPPING;
 		try {
-			await execCommand(`docker container ${force?'kill':'stop'} ${this.container_name}`)
+			await executeDocker([
+				"container",
+				(force ? "kill" : "stop"),
+				this.container_name
+			]);
 		} catch (e) {
 			this.logger.error("error while stopping container",e);
 			// TODO FAILED or RUNNING?
@@ -202,23 +219,27 @@ const logger = new Datex.Logger("Container");
 	 * @returns 
 	 */
 	@property public getLogs(timeout = 60) {
-		const p = Deno.run({
-			cmd: ['docker', 'logs', '--follow', this.container_name],
-			stdout: 'piped', 
-			stderr: 'piped'
-		})
+		const p = new Deno.Command("docker", {
+			args: [
+				"logs",
+				"--follow",
+				`"${this.container_name}"`
+			],
+			stdout: "piped",
+			stderr: "piped"
+		}).spawn()
+		
 		const stream = $$(new Datex.Stream());
-		stream.pipe(p.stdout.readable);
-		stream.pipe(p.stderr.readable);
+		stream.pipe(p.stdout);
+		stream.pipe(p.stderr);
 
 		// close stream after timeout
 		setTimeout(() => {
 			// \u0004 is the EOT character
 			stream.write(new TextEncoder().encode("\n[Stream was closed after " + timeout + " minutes]\n\u0004").buffer);
 			stream.close();
-			p.close();
+			p.kill();
 		}, timeout * 60 * 1000);
-
 		return stream;
 	}
 
@@ -232,15 +253,21 @@ const logger = new Datex.Logger("Container");
 
 	private async isRunning() {
 		try {
-			const ps = await execCommand(`docker ps | grep ${this.container_name}`);
-			return !!ps;
+			await executeShell([
+				"docker",
+				"ps",
+				"|",
+				"grep",
+				this.container_name
+			], false);
+			return true;
 		} catch (e) {
 			this.logger.error(e);
 			return false
 		}
 	}
 
-	exposePort(port:number, hostPort:number) {
+	exposePort(port: number, hostPort: number) {
 		this.#ports.push([port, hostPort])
 	}
 
@@ -284,20 +311,28 @@ const logger = new Datex.Logger("Container");
 
 	public static async removeContainer(name: string) {
 		try {
-			await execCommand(`docker rm -f ${name}`)
+			await executeDocker([
+				"rm",
+				"-f",
+				name
+			]);
 		} catch (e) {
-			logger.error("error while removing container",e);
+			logger.error("Could not remove container", e);
 			return false;
 		}
 	}
 
 	public static async removeImage(name: string) {
 		try {
-			await execCommand(`docker image rm -f ${name}`)
+			await executeDocker([
+				"image",
+				"rm",
+				"-f",
+				name
+			]);
 		} catch (e) {
-			logger.error("error while removing container image",e);
+			logger.error("Could not remove image", e);
 			return false;
 		}
 	}
-
 }

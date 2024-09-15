@@ -11,7 +11,7 @@ import { ContainerManager } from "../../main.ts";
 import { executeDocker, executeGit, executeShell } from "../CMD.ts";
 import { containers } from "../../main.ts";
 
-const publicServerIP = await getIP({ipv6: false});
+const publicServerIP = await getIP({ ipv6: false });
 const defaulTraefikToml = `
 [entryPoints]
   [entryPoints.web]
@@ -54,7 +54,6 @@ export type AdvancedUIXContainerOptions = {
 	isVersion1 = false;
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
-	// @ts-ignore $
 	async construct(
 		owner: Datex.Endpoint,
 		endpoint: Datex.Endpoint,
@@ -254,7 +253,7 @@ export type AdvancedUIXContainerOptions = {
 		await this.handleNetwork();
 
 		// remove any existing previous container
-		const existingContainers = await ContainerManager.findContainer({type: UIXAppContainer as unknown as Datex.Class<Container>, properties: {
+		const existingContainers = await ContainerManager.findContainer<UIXAppContainer>({type: UIXAppContainer, properties: {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}});
@@ -263,7 +262,8 @@ export type AdvancedUIXContainerOptions = {
 			// FIXME
 			for await (const [endpoint, cs] of containers.entries()) {
 				for (const c of cs) {
-					console.log(endpoint, c.container_name, c.stage, c.gitHTTPS)
+					console.log(c instanceof UIXAppContainer)
+					console.log(endpoint, c.container_name, (c as unknown as UIXAppContainer).stage, c.gitHTTPS)
 				}
 			}
 		}

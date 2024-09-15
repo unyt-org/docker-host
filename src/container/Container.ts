@@ -71,7 +71,7 @@ const logger = new Datex.Logger("Container");
 		return crypto.randomUUID().replaceAll("-", "").slice(0, size);
 	}
 
-	construct(owner: Datex.Endpoint) {
+	construct(owner: Datex.Endpoint, ...args: any[]) {
 		this.owner = owner;
 		this.container_name = this.uniqueID();
 		this.logger = new Datex.Logger(this);

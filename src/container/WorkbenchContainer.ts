@@ -8,7 +8,6 @@ import { executeDocker } from "../CMD.ts";
 @sync export class WorkbenchContainer extends Container {
 	@property config!: EndpointConfig
 
-	// @ts-ignore $
 	override construct(owner: Datex.Endpoint, config: EndpointConfig) {
 		super.construct(owner)
 		this.config = config;

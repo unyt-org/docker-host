@@ -6,7 +6,6 @@ import { executeDocker } from "../CMD.ts";
 	@property version?: string
 	@property url!: string
 
-	// @ts-ignore $
 	construct(owner: Datex.Endpoint, url: string, version?: string) {
 		super.construct(owner)
 		this.version = version;

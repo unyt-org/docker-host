@@ -46,7 +46,7 @@ const ensureToken = (token?: string) => {
 		container.start();
 
 		// link container to requesting endpoint
-		await this.addContainer(sender, container as unknown as Container);
+		await this.addContainer(sender, container);
 		return container;
 	}
 
@@ -61,7 +61,7 @@ const ensureToken = (token?: string) => {
 		// @ts-ignore $
 		const container = new RemoteImageContainer(sender, name);
 		container.start().then(async ()=>{
-			await this.addContainer(sender, container as unknown as Container);
+			await this.addContainer(sender, container);
 		}).catch();
 
 		// link container to requesting endpoint
@@ -100,7 +100,7 @@ const ensureToken = (token?: string) => {
 				logger.error(`Could not start app container for '${gitURL}'`);
 			} else {
 				// link container to requesting endpoint
-				await this.addContainer(sender, container as unknown as Container);
+				await this.addContainer(sender, container);
 			}
 		}).catch();
 		await sleep(2000); // wait for immediate status updates
@@ -118,15 +118,15 @@ const ensureToken = (token?: string) => {
 		if (await containers.has(endpoint))
 			(await containers.get(endpoint))!.add(container);
 		else await containers.set(endpoint, new Set([container]));
-		console.log("ADDED c", container.name, endpoint, await containers.getSize())
+		console.log("Added", container.name, endpoint, await containers.getSize(), containers.constructor.name)
 	}
 
-	public static async findContainer({type, properties, endpoint}: {
+	public static async findContainer<T extends Container>({type, properties, endpoint}: {
 		type?: Class<Container>,
 		endpoint?: Datex.Endpoint,
 		properties?: Record<string, any>
-	}) {
-		const matches = [];
+	}): Promise<T[]> {
+		const matches: T[] = [];
 		iterate: for await (const [containerEndpoint, containerSet] of containers.entries()) {
 			// match endpoint
 			if (endpoint && !containerEndpoint.equals(endpoint)) continue;
@@ -139,7 +139,7 @@ const ensureToken = (token?: string) => {
 							if ((container as any)[key] !== value) continue iterate;
 						}
 					}
-					matches.push(container);
+					matches.push(container as T);
 				}
 			}
 		}
@@ -150,5 +150,5 @@ const ensureToken = (token?: string) => {
 export const containers = eternalVar("containers") ?? $$(new StorageMap<Datex.Endpoint, Set<Container>>());
 
 logger.info(`Found ${await containers.getSize()} unique endpoint(s) in cache.`);
-logger.info("Container List:", [...(await ContainerManager.getContainerList())].map(e => `${e.container_name}: ${e.owner} ${e.image} (${ContainerStatus[e.status]})`));
+logger.info("Container List:", [...(await ContainerManager.getContainerList())].map(e => `${e.constructor.name} ${e.container_name}: ${e.owner} ${e.image} (${ContainerStatus[e.status]})`));
 logger.success("Docker Host is up and running");

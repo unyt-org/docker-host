@@ -15,11 +15,11 @@ async function executeCommand(command: string, args: string[], output = true) {
 			}
 		).spawn().status).success;
 	} catch (e) {
-		logger.error(`Could not execute "${command} ${args.join(" ")}"`);
+		if (output) logger.error(`Could not execute "${command} ${args.join(" ")}"`);
 		throw e;
 	}
 	if (!status) {
-		logger.error(`"${command} ${args.join(" ")}" failed`);
+		if (output) logger.error(`"${command} ${args.join(" ")}" failed`);
 		throw new Error(`Could not execute ${command}`);
 	}
 }
@@ -40,11 +40,11 @@ export async function executeShell(args: string[], output = true) {
 			stdout: output ? "inherit" : "null"
 		}).spawn().status).success;
 	} catch (e) {
-		logger.error(`Could not execute "${args.join(" ")}"`);
+		if (output) logger.error(`Could not execute "${args.join(" ")}"`);
 		throw e;
 	}
 	if (!status) {
-		logger.error(`"${args.join(" ")}" failed`);
-		throw new Error("Could not execute");
+		if (output) logger.error(`"${args.join(" ")}" failed`);
+		throw new Error(`Failed at shell command "${args.join(" ")}"`);
 	}
 }

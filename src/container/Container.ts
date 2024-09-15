@@ -196,7 +196,7 @@ const logger = new Datex.Logger("Container");
 				"container",
 				(force ? "kill" : "stop"),
 				this.container_name
-			]);
+			], false);
 		} catch (e) {
 			this.logger.error("error while stopping container",e);
 			// TODO FAILED or RUNNING?

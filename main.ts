@@ -8,6 +8,7 @@ import { RemoteImageContainer } from "./src/container/RemoteImageContainer.ts";
 import { UIXAppContainer, AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import { WorkbenchContainer } from "./src/container/WorkbenchContainer.ts";
 import { Endpoint } from "unyt_core/datex_all.ts";
+import { ContainerStatus } from "./src/container/Types.ts";
 
 const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
@@ -88,11 +89,16 @@ const ensureToken = (token?: string) => {
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
-		container.start();
+		container.start().then(()=>{
+			if (container.status === ContainerStatus.FAILED) {
+				container.stop(true);
+				logger.error(`Could not start app container for '${gitURL}'`);
+			} else {
+				// link container to requesting endpoint
+				this.addContainer(sender, container as unknown as Container);
+			}
+		}).catch();
 		await sleep(2000); // wait for immediate status updates
-
-		// link container to requesting endpoint
-		this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 

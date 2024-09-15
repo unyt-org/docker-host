@@ -251,8 +251,10 @@ export type AdvancedUIXContainerOptions = {
 
 	// custom workbench container init
 	override async handleInit() {
-		if (!this.logger)
-			this.logger = new Logger(this); // FIXME why is this an issue?
+		if (!this.logger) {
+			console.log(this.branch, this.domains, this.stage, this.image, this.endpoint, this.container_name);
+			throw new Error("No logger!!");
+		}
 		// setup network
 		await this.handleNetwork();
 
@@ -261,22 +263,14 @@ export type AdvancedUIXContainerOptions = {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}});
+		if (existingContainers.length === 0)
+			this.logger.info("Found no existing containers. Creating new...");
 		for (const existingContainer of existingContainers) {
 			this.logger.warn("Removing existing container", existingContainer)
 			await existingContainer.remove();
 		}
 		this.image = this.container_name;
 		try {
-			console.log(
-				this,
-				this.image,
-				this.gitHTTPS,
-				this.gitSSH,
-				this.volumes,
-				this.branch,
-				this.endpoint,
-				this.advancedOptions
-			)
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
 			this.logger.info("image: " + this.image);
 			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);
@@ -292,16 +286,18 @@ export type AdvancedUIXContainerOptions = {
 			let repoIsPublic = false;
 		
 			try {
-				// TODO add for GitLab
-				repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
+				if (this.gitOrigin === "GitHub")
+					repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
+				else if (this.gitOrigin === "GitLab")
+					repoIsPublic = (await (await fetch(`${this.gitOriginURL}info/refs?service=git-upload-pack`)).json());
 			} catch { /* */}
 
 			// try clone with https first
 			try {
 				await executeGit([
 					"clone",
-					"depth", "1",
-					"-single-branch",
+					"--depth", "1",
+					"--single-branch",
 					"--branch", this.branch,
 					"--recurse-submodules",
 					this.gitHTTPS.toString(),

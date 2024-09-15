@@ -260,14 +260,13 @@ export type AdvancedUIXContainerOptions = {
 		}});
 		if (existingContainers.length === 0) {
 			this.logger.info(`Found no existing containers ${this.gitHTTPS} (${this.stage}). Creating new...`);
-			console.log(containers.forEach(e => {
+			containers.forEach(e => {
 				[...e.values()].map(e => console.log(
-					e,
 					e.gitHTTPS,
 					e.stage,
 					e.container_name
 				))
-			}))
+			})
 		}
 		for (const existingContainer of existingContainers) {
 			this.logger.warn("Removing existing container", existingContainer)

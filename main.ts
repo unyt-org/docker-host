@@ -7,9 +7,8 @@ import { Container} from "./src/container/Container.ts";
 import { RemoteImageContainer } from "./src/container/RemoteImageContainer.ts";
 import { UIXAppContainer, AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
 import { WorkbenchContainer } from "./src/container/WorkbenchContainer.ts";
-import { Endpoint } from "unyt_core/datex_all.ts";
+import { Endpoint, StorageMap } from "unyt_core/datex_all.ts";
 import { ContainerStatus } from "./src/container/Types.ts";
-import { containers } from "./containers.eternal.ts";
 
 const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
@@ -26,6 +25,10 @@ const ensureToken = (token?: string) => {
 	@property static async getContainers(token?: string): Promise<Set<Container>> {
 		ensureToken(token);
 		return await containers.get(datex.meta!.caller) ?? new Set();
+	}
+	@property static async getAllContainers(token?: string): Promise<Set<Container>> {
+		ensureToken(token);
+		return this.getContainerList();
 	}
 
 	@property static async createWorkbenchContainer(token?: string): Promise<WorkbenchContainer> {
@@ -57,10 +60,11 @@ const ensureToken = (token?: string) => {
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new RemoteImageContainer(sender, name);
-		container.start();
+		container.start().then(async ()=>{
+			await this.addContainer(sender, container as unknown as Container);
+		}).catch();
 
 		// link container to requesting endpoint
-		await this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 
@@ -78,7 +82,7 @@ const ensureToken = (token?: string) => {
 		advancedOptions?: AdvancedUIXContainerOptions): Promise<UIXAppContainer> {
 		ensureToken(token);
 		const sender = datex.meta!.caller;
-		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch);
+		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch, env);
 
 		if (!branch || typeof branch !== "string" || branch.length < 2 || branch.length > 50 || !/^[a-z\.\-\/#0-9:&]+$/gi.test(branch))
 			throw new Error(`Can not create UIX App container with branch '${branch}'`);
@@ -103,10 +107,18 @@ const ensureToken = (token?: string) => {
 		return container;
 	}
 
+	public static async getContainerList() {
+		const list = new Set<Container>();
+		for await (const containerList of containers.values())
+			containerList.forEach(e => list.add(e));
+		return list;
+	}
+
 	private static async addContainer(endpoint: Datex.Endpoint, container: Container) {
 		if (await containers.has(endpoint))
 			(await containers.get(endpoint))!.add(container);
 		else await containers.set(endpoint, new Set([container]));
+		console.log("ADDED c", container.name, endpoint, await containers.getSize())
 	}
 
 	public static async findContainer({type, properties, endpoint}: {
@@ -135,11 +147,8 @@ const ensureToken = (token?: string) => {
 	}
 }
 
-logger.info(`Found ${await containers.getSize()} unique endpoints in cache.`);
-logger.success("Docker Host is running");
-// await ContainerManager.createUIXAppContainer(
-// 	"access",
-// 	"https://github.com/unyt-org/blog",
-// 	"main",
-// 	f("@dfdfdf")
-// );
+export const containers = eternalVar("containers") ?? $$(new StorageMap<Datex.Endpoint, Set<Container>>());
+
+logger.info(`Found ${await containers.getSize()} unique endpoint(s) in cache.`);
+logger.info("Container List:", [...(await ContainerManager.getContainerList())].map(e => `${e.container_name}: ${e.owner} ${e.image} (${ContainerStatus[e.status]})`));
+logger.success("Docker Host is up and running");

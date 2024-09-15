@@ -3,7 +3,7 @@ import { Datex } from "unyt_core/mod.ts";
 import { ContainerStatus } from "./Types.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
 import { executeDocker, executeShell } from "../CMD.ts";
-import { containers } from "../../containers.eternal.ts";
+import { containers } from "../../main.ts";
 
 const logger = new Datex.Logger("Container");
 

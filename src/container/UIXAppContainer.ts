@@ -9,7 +9,7 @@ import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
 import { executeDocker, executeGit, executeShell } from "../CMD.ts";
-import { containers } from "../../containers.eternal.ts";
+import { containers } from "../../main.ts";
 
 const publicServerIP = await getIP({ipv6: false});
 const defaulTraefikToml = `

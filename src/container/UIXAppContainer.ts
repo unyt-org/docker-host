@@ -9,6 +9,7 @@ import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
 import { executeDocker, executeGit, executeShell } from "../CMD.ts";
+import { containers } from '../../main.ts';
 
 const publicServerIP = await getIP({ipv6: false});
 const defaulTraefikToml = `
@@ -167,8 +168,6 @@ export type AdvancedUIXContainerOptions = {
 				this.logger.info("Could not detect existing traefik container. Creating new traefik container...");
 				const traefikDir = new Path("/etc/traefik/");
 
-				throw "Should not be here"; // FIXME
-				
 				// init and start traefik container
 				if (!traefikDir.fs_exists)
 					await Deno.mkdir("/etc/traefik/", { recursive: true });
@@ -251,10 +250,6 @@ export type AdvancedUIXContainerOptions = {
 
 	// custom workbench container init
 	override async handleInit() {
-		if (!this.logger) {
-			console.log(this.branch, this.domains, this.stage, this.image, this.endpoint, this.container_name);
-			throw new Error("No logger!!");
-		}
 		// setup network
 		await this.handleNetwork();
 
@@ -263,8 +258,17 @@ export type AdvancedUIXContainerOptions = {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}});
-		if (existingContainers.length === 0)
-			this.logger.info("Found no existing containers. Creating new...");
+		if (existingContainers.length === 0) {
+			this.logger.info(`Found no existing containers ${this.gitHTTPS} (${this.stage}). Creating new...`);
+			console.log(containers.forEach(e => {
+				[...e.values()].map(e => console.log(
+					e,
+					e.gitHTTPS,
+					e.stage,
+					e.container_name
+				))
+			}))
+		}
 		for (const existingContainer of existingContainers) {
 			this.logger.warn("Removing existing container", existingContainer)
 			await existingContainer.remove();
@@ -277,7 +281,7 @@ export type AdvancedUIXContainerOptions = {
 			this.logger.info("Branch: " + this.branch);
 			this.logger.info("Endpoint: " + this.endpoint);
 			this.logger.info("Domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
-			this.logger.info("AdvancedOptions: " + this.advancedOptions ? JSON.stringify(this.advancedOptions) : "-");
+			this.logger.info("Options: " + (this.advancedOptions ? JSON.stringify(this.advancedOptions) : "{}"));
 			
 			// clone repo
 			const dir = await Deno.makeTempDir({ prefix:'uix-app-' });

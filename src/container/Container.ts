@@ -56,11 +56,6 @@ const logger = new Datex.Logger("Container");
 		return this.#labels
 			.map(label => ["--label", `${label}`])
 			.flat();
-			/** Not needed anymore?
-			 * .replaceAll('`', '\\`')
-			.replaceAll('(', '\\(')
-			.replaceAll(')', '\\)')
-			 */
 	}
 	getFormattedPorts() {
 		return this.#ports.map(ports => ["-p", `${ports[1]}:${ports[0]}`]).flat();
@@ -126,7 +121,7 @@ const logger = new Datex.Logger("Container");
 			await executeDocker([
 				"run",
 				"--network", this.network,
-				...(this.debugPort ? [`-p`, `"${this.debugPort}:9229"`] : []),
+				...(this.debugPort ? [`-p`, `${this.debugPort}:9229`] : []),
 				"--log-opt",
 				"max-size=10m",
 				"-d",

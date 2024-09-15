@@ -480,12 +480,12 @@ Host ${this.uniqueGitHostName}
 			.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
 			.replace("{{IMPORTMAP_PATH}}", (
 				this.advancedOptions?.importMapPath ? 
-					new URL(this.advancedOptions.importMapPath).toString() :
+					this.advancedOptions.importMapPath.toString() :
 					'https://dev.cdn.unyt.org/importmap_compat.json'
 			))
 			.replace("{{UIX_RUN_PATH}}", (
 				this.advancedOptions?.uixRunPath ? 
-					new URL(this.advancedOptions.uixRunPath).toString() :
+					this.advancedOptions.uixRunPath.toString() :
 					'https://cdn.unyt.org/uix@0.1.x/run.ts'
 			));
 

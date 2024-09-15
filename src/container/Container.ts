@@ -8,7 +8,7 @@ import { executeDocker, executeShell } from "../CMD.ts";
 const logger = new Datex.Logger("Container");
 
 // parent class for all types of containers
-@sync export default class Container {
+@sync export class Container {
 	protected logger!: Datex.Logger;
 	#initialized = false;
 

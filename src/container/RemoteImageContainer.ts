@@ -1,8 +1,8 @@
 import { Datex } from "unyt_core/mod.ts";
-import Container from "./Container.ts";
+import {Container} from "./Container.ts";
 import { executeDocker } from "../CMD.ts";
 
-@sync export default class RemoteImageContainer extends Container {
+@sync export class RemoteImageContainer extends Container {
 	@property version?: string
 	@property url!: string
 

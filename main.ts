@@ -3,10 +3,10 @@ import { EndpointConfig } from "./src/endpoint-config.ts";
 import { Datex, property } from "unyt_core/datex.ts";
 import { Class } from "unyt_core/utils/global_types.ts";
 import { config } from "./src/config.ts";
-import Container from "./src/container/Container.ts";
-import RemoteImageContainer from "./src/container/RemoteImageContainer.ts";
-import UIXAppContainer, { AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
-import WorkbenchContainer from "./src/container/WorkbenchContainer.ts";
+import { Container} from "./src/container/Container.ts";
+import { RemoteImageContainer } from "./src/container/RemoteImageContainer.ts";
+import { UIXAppContainer, AdvancedUIXContainerOptions } from "./src/container/UIXAppContainer.ts";
+import { WorkbenchContainer } from "./src/container/WorkbenchContainer.ts";
 import { Endpoint } from "unyt_core/datex_all.ts";
 
 const logger = new Datex.Logger("Docker Host");
@@ -16,7 +16,7 @@ await Datex.Supranet.connect();
 const ensureToken = (token?: string) => {
 	if (config.token && config.token.length && config.token !== token) {
 		logger.error(`Got request with invalid or missing access token "${token ?? "none"}"`);
-		throw new Error("Invalid access token");
+		throw new Error(`Invalid access token: The Docker Host ${Datex.Runtime.endpoint} requires authentication. Please make sure to set the HOST_TOKEN environment variable.`);
 	}
 }
 

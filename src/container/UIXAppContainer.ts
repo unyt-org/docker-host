@@ -3,8 +3,8 @@ import { Datex } from "unyt_core/mod.ts";
 import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 import { Path } from "unyt_core/utils/path.ts";
 import { config } from "../config.ts";
-import Container from "./Container.ts";
-import RemoteImageContainer from "./RemoteImageContainer.ts";
+import {Container} from "./Container.ts";
+import {RemoteImageContainer} from "./RemoteImageContainer.ts";
 import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
@@ -39,7 +39,7 @@ export type AdvancedUIXContainerOptions = {
 	uixRunPath?: string
 };
 
-@sync export default class UIXAppContainer extends Container {
+@sync export class UIXAppContainer extends Container {
 	@property branch!: string;
 	@property gitSSH!: string;
 	@property gitHTTPS!: URL;
@@ -161,7 +161,7 @@ export type AdvancedUIXContainerOptions = {
 		if (config.enableTraefik) {
 			// has traefik?
 			try {
-				await executeShell(["docker", "ps", "|", "grep", "traefik"]);
+				await executeShell(["docker", "ps", "|", "grep", "traefik"], false);
 				this.logger.success("Found existing traefik container");
 			} catch {
 				this.logger.info("Could not detect existing traefik container. Creating new traefik container...");

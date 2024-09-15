@@ -7,18 +7,19 @@ import { executeDocker } from "../CMD.ts";
 	@property url!: string
 
 	construct(owner: Datex.Endpoint, url: string, version?: string) {
-		super.construct(owner)
+		super.construct(owner);
 		this.version = version;
 		this.url = url;
 		this.name = url;
-		this.image = `${this.url}${this.version ? `:${this.version}` : ''}`;
 	}
 
 	// update docker image
 	@property async update() {
 		try {
-			if (!/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(this.image))
-				throw new Error(`Could not pull image with name ${this.image}`);
+			const image = `${this.url}${this.version ? `:${this.version}` : ''}`;
+			if (!/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(image))
+				throw new Error(`Could not pull image with name ${image}`);
+			this.image = image;
 			await executeDocker([
 				"pull",
 				this.image

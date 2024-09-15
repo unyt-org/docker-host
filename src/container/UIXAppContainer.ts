@@ -254,18 +254,19 @@ export type AdvancedUIXContainerOptions = {
 
 		// remove any existing previous container
 		const existingContainers = await ContainerManager.findContainer<UIXAppContainer>({type: UIXAppContainer, properties: {
-			gitHTTPS: this.gitHTTPS,
-			stage: this.stage
+			// gitHTTPS: this.gitHTTPS,
+			// stage: this.stage
+			container_name: this.container_name
 		}});
 		if (existingContainers.length === 0) {
 			this.logger.info(`Found no existing containers ${this.gitHTTPS} (${this.stage}). Creating new...`);
 			// FIXME
-			for await (const [endpoint, cs] of containers.entries()) {
-				for (const c of cs) {
-					console.log(c instanceof UIXAppContainer)
-					console.log(endpoint, c.container_name, (c as unknown as UIXAppContainer).stage, c.gitHTTPS)
-				}
-			}
+			// for await (const [endpoint, cs] of containers.entries()) {
+			// 	for (const c of cs) {
+			// 		console.log(c instanceof UIXAppContainer)
+			// 		console.log(endpoint, c.container_name, (c as unknown as UIXAppContainer).stage, c.gitHTTPS)
+			// 	}
+			// }
 		}
 		for (const existingContainer of existingContainers) {
 			this.logger.warn("Removing existing container", existingContainer)

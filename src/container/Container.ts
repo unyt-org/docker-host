@@ -13,13 +13,13 @@ const logger = new Datex.Logger("Container");
 	#initialized = false;
 
 	// docker container image + id
-	@property image!: string
-	@property container_name = "Container"
-	@property name = "Container"
+	@property image!: string;
+	@property container_name = "Container";
+	@property name = "Container";
 	@property id = '0';
-	@property owner!: Datex.Endpoint
+	@property owner!: Datex.Endpoint;
 	@property status: ContainerStatus = ContainerStatus.INITIALIZING;
-	@property errorMessage?: string
+	@property errorMessage?: string;
 
 	#labels: string[] = []
 	#ports: [number, number][] = []
@@ -71,7 +71,7 @@ const logger = new Datex.Logger("Container");
 		return crypto.randomUUID().replaceAll("-", "").slice(0, size);
 	}
 
-	construct(owner: Datex.Endpoint, ...args: any[]) {
+	construct(owner: Datex.Endpoint, ..._: unknown[]) {
 		this.owner = owner;
 		this.container_name = this.uniqueID();
 		this.logger = new Datex.Logger(this);

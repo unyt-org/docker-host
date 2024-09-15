@@ -272,12 +272,12 @@ export type AdvancedUIXContainerOptions = {
 		this.image = this.container_name;
 		try {
 			const domains = this.domains ?? [formatEndpointURL(this.endpoint)];
-			this.logger.info("image: " + this.image);
-			this.logger.info("repo: " + this.gitHTTPS + " / " + this.gitSSH);
-			this.logger.info("branch: " + this.branch);
-			this.logger.info("endpoint: " + this.endpoint);
-			this.logger.info("domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
-			this.logger.info("advancedOptions: " + this.advancedOptions ? JSON.stringify(this.advancedOptions) : "-");
+			this.logger.info("Image: " + this.image);
+			this.logger.info("Repo: " + this.gitHTTPS + " / " + this.gitSSH);
+			this.logger.info("Branch: " + this.branch);
+			this.logger.info("Endpoint: " + this.endpoint);
+			this.logger.info("Domains: " + Object.entries(domains).map(([d,p])=>`${d} (port ${p})`).join(", "));
+			this.logger.info("AdvancedOptions: " + this.advancedOptions ? JSON.stringify(this.advancedOptions) : "-");
 			
 			// clone repo
 			const dir = await Deno.makeTempDir({ prefix:'uix-app-' });
@@ -479,10 +479,14 @@ Host ${this.uniqueGitHostName}
 		dockerfile = dockerfile
 			.replace("{{UIX_ARGS}}", this.args?.join(" ")??"")
 			.replace("{{IMPORTMAP_PATH}}", (
-				this.advancedOptions?.importMapPath ? new URL(this.advancedOptions.importMapPath).toString() : 'https://dev.cdn.unyt.org/importmap_compat.json'
+				this.advancedOptions?.importMapPath ? 
+					new URL(this.advancedOptions.importMapPath).toString() :
+					'https://dev.cdn.unyt.org/importmap_compat.json'
 			))
 			.replace("{{UIX_RUN_PATH}}", (
-				this.advancedOptions?.uixRunPath ? new URL(this.advancedOptions.uixRunPath).toString() : 'https://cdn.unyt.org/uix@0.1.x/run.ts'
+				this.advancedOptions?.uixRunPath ? 
+					new URL(this.advancedOptions.uixRunPath).toString() :
+					'https://cdn.unyt.org/uix@0.1.x/run.ts'
 			));
 
 		// expose port

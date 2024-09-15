@@ -252,7 +252,7 @@ const logger = new Datex.Logger("Container");
 				"ps",
 				"|",
 				"grep",
-				this.container_name
+				`"${this.container_name}"`
 			], false);
 			return true;
 		} catch (e) {

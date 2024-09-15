@@ -1,10 +1,10 @@
-import { logger, ESCAPE_SEQUENCES, Logger } from "unyt_core/datex_all.ts";
+import { logger, ESCAPE_SEQUENCES } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { formatEndpointURL } from "unyt_core/utils/format-endpoint-url.ts";
 import { Path } from "unyt_core/utils/path.ts";
 import { config } from "../config.ts";
-import {Container} from "./Container.ts";
-import {RemoteImageContainer} from "./RemoteImageContainer.ts";
+import { Container } from "./Container.ts";
+import { RemoteImageContainer } from "./RemoteImageContainer.ts";
 import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";

@@ -1,8 +1,8 @@
 import { logger } from "unyt_core/datex_all.ts";
 import { Datex } from "unyt_core/mod.ts";
 import { EndpointConfig } from "../endpoint-config.ts";
-import {Container} from "./Container.ts";
-import {copy} from "https://deno.land/std@0.224.0/fs/copy.ts";
+import { Container } from "./Container.ts";
+import { copy } from "https://deno.land/std@0.224.0/fs/copy.ts";
 import { executeDocker } from "../CMD.ts";
 
 @sync export class WorkbenchContainer extends Container {

@@ -53,11 +53,14 @@ const logger = new Datex.Logger("Container");
 	}
 
 	getFormattedLabels() {
-		return this.#labels.map(label => 
-			["--label", `${label.replaceAll('`', '\\`')
-								.replaceAll('(', '\\(')
-								.replaceAll(')', '\\)')}`
-			]).flat();
+		return this.#labels
+			.map(label => ["--label", `${label}`])
+			.flat();
+			/** Not needed anymore?
+			 * .replaceAll('`', '\\`')
+			.replaceAll('(', '\\(')
+			.replaceAll(')', '\\)')
+			 */
 	}
 	getFormattedPorts() {
 		return this.#ports.map(ports => ["-p", `${ports[1]}:${ports[0]}`]).flat();

@@ -101,7 +101,7 @@ export type AdvancedUIXContainerOptions = {
 		}
 
 		this.container_name = (endpoint.name + (endpoint.name.toLowerCase().endsWith(stage.toLowerCase()) ? '' : (stage ? '-' + stage : '')))
-			.replace(/[^a-z0-9@-_#/]/gmi, "")
+			.replace(/[^a-z0-9@-_#]/gmi, '-')
 			.toLowerCase();
 		this.advancedOptions = advancedOptions;
 
@@ -335,7 +335,7 @@ export type AdvancedUIXContainerOptions = {
 
 					let opt = 1;
 					const appendOption = (option: string) => {
-						errorMessage += `${opt++}. ${option}\n`
+						errorMessage += `${opt++}. ${option}\n`;
 					}
 
 					if (!repoIsPublic)
@@ -350,10 +350,12 @@ export type AdvancedUIXContainerOptions = {
 
 			// set debug port
 			let i=0;
+			if (!this.args)
+				this.args = [];
 			for (const arg of this.args??[]) {
 				if (arg.startsWith("--inspect")) {
 					this.debugPort = arg.match(/\:(\d+)$/)?.[1] ?? "9229";
-					this.args![i] = `--inspect=0.0.0.0:${this.debugPort}`
+					this.args[i] = `--inspect=0.0.0.0:${this.debugPort}`
 				}
 				i++;
 			}

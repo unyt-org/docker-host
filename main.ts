@@ -9,6 +9,7 @@ import { UIXAppContainer, AdvancedUIXContainerOptions } from "./src/container/UI
 import { WorkbenchContainer } from "./src/container/WorkbenchContainer.ts";
 import { Endpoint } from "unyt_core/datex_all.ts";
 import { ContainerStatus } from "./src/container/Types.ts";
+import { containers } from "./containers.eternal.ts";
 
 const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
@@ -24,7 +25,7 @@ const ensureToken = (token?: string) => {
 @endpoint @entrypointProperty export class ContainerManager {
 	@property static async getContainers(token?: string): Promise<Set<Container>> {
 		ensureToken(token);
-		return containers.getAuto(datex.meta!.caller);
+		return await containers.get(datex.meta!.caller) ?? new Set();
 	}
 
 	@property static async createWorkbenchContainer(token?: string): Promise<WorkbenchContainer> {
@@ -42,7 +43,7 @@ const ensureToken = (token?: string) => {
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(sender, container as unknown as Container);
+		await this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 
@@ -59,7 +60,7 @@ const ensureToken = (token?: string) => {
 		container.start();
 
 		// link container to requesting endpoint
-		this.addContainer(sender, container as unknown as Container);
+		await this.addContainer(sender, container as unknown as Container);
 		return container;
 	}
 
@@ -89,30 +90,32 @@ const ensureToken = (token?: string) => {
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
-		container.start().then(()=>{
+		container.start().then(async ()=>{
 			if (container.status === ContainerStatus.FAILED) {
 				container.stop(true);
 				logger.error(`Could not start app container for '${gitURL}'`);
 			} else {
 				// link container to requesting endpoint
-				this.addContainer(sender, container as unknown as Container);
+				await this.addContainer(sender, container as unknown as Container);
 			}
 		}).catch();
 		await sleep(2000); // wait for immediate status updates
 		return container;
 	}
 
-	private static addContainer(endpoint: Datex.Endpoint, container: Container) {
-		containers.getAuto(endpoint).add(container);
+	private static async addContainer(endpoint: Datex.Endpoint, container: Container) {
+		if (await containers.has(endpoint))
+			(await containers.get(endpoint))!.add(container);
+		else await containers.set(endpoint, new Set([container]));
 	}
 
-	public static findContainer({type, properties, endpoint}: {
+	public static async findContainer({type, properties, endpoint}: {
 		type?: Class<Container>,
 		endpoint?: Datex.Endpoint,
 		properties?: Record<string, any>
 	}) {
 		const matches = [];
-		iterate: for (const [containerEndpoint, containerSet] of containers) {
+		iterate: for await (const [containerEndpoint, containerSet] of containers.entries()) {
 			// match endpoint
 			if (endpoint && !containerEndpoint.equals(endpoint)) continue;
 			for (const container of containerSet) {
@@ -132,8 +135,7 @@ const ensureToken = (token?: string) => {
 	}
 }
 
-export const containers = (await lazyEternalVar("containers") ?? $$(new Map<Datex.Endpoint, Set<Container>>)).setAutoDefault(Set);
-logger.info(`Found ${containers.size} containers in cache.`);
+logger.info(`Found ${await containers.getSize()} unique endpoints in cache.`);
 logger.success("Docker Host is running");
 // await ContainerManager.createUIXAppContainer(
 // 	"access",

@@ -9,7 +9,7 @@ import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
 import { executeDocker, executeGit, executeShell } from "../CMD.ts";
-import { containers } from '../../main.ts';
+import { containers } from "../../containers.eternal.ts";
 
 const publicServerIP = await getIP({ipv6: false});
 const defaulTraefikToml = `
@@ -254,20 +254,18 @@ export type AdvancedUIXContainerOptions = {
 		await this.handleNetwork();
 
 		// remove any existing previous container
-		const existingContainers = ContainerManager.findContainer({type: UIXAppContainer as unknown as Datex.Class<Container>, properties: {
+		const existingContainers = await ContainerManager.findContainer({type: UIXAppContainer as unknown as Datex.Class<Container>, properties: {
 			gitHTTPS: this.gitHTTPS,
 			stage: this.stage
 		}});
 		if (existingContainers.length === 0) {
 			this.logger.info(`Found no existing containers ${this.gitHTTPS} (${this.stage}). Creating new...`);
 			// FIXME
-			containers.forEach(e => {
-				[...e.values()].map(e => console.log(
-					e.gitHTTPS,
-					e.stage,
-					e.container_name
-				))
-			})
+			for await (const [endpoint, cs] of containers.entries()) {
+				for (const c of cs) {
+					console.log(endpoint, c.container_name, c.stage, c.gitHTTPS)
+				}
+			}
 		}
 		for (const existingContainer of existingContainers) {
 			this.logger.warn("Removing existing container", existingContainer)

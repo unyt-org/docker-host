@@ -15,6 +15,7 @@ if ! [ -x "$(command -v unzip)" ]; then
 	exit 1
 fi
 
+
 # Install deno
 if ! [ -x "$(command -v deno)" ]; then
 	echo 'Installing deno...'
@@ -50,13 +51,22 @@ GIT_ORIGIN=https://github.com/unyt-org/docker-host.git
 SERVICE_NAME=$(systemd-escape "unyt_$(echo "$ENDPOINT" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9_]/_/g')")
 DENO_DIR=$(which deno)
 
+if [ -d "$DIR" ]; then
+	echo "$DIR does already exist. Please pick another endpoint or remove the existing Docker Host"
+	exit
+fi
+
 # clone git repo
 echo "Cloning git repo to $DIR ..."
 git clone -b v2 $GIT_ORIGIN $DIR
 
+# set access token
+RANDOM_STRING=$(head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 16)
+NEW_TOKEN="\"$(echo $RANDOM_STRING | sed 's/.\{4\}/&-/g;s/-$//')\""
+sed -i.bak 's/token: "[^"]*"/token: '"$NEW_TOKEN"'/g' "$DIR/config.dx"
+
 # rename endpoint
 echo "endpoint: $ENDPOINT" > "$DIR/.dx"
-
 
 # Create the service unit file
 cat > /etc/systemd/system/$SERVICE_NAME.service <<EOL

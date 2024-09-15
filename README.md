@@ -1,21 +1,57 @@
 # Docker Host
 
-Creates and manages Docker containers for UIX deployment.
-Containers can be created via a DATEX interface.
+The **Docker Host** is a service to create and manage UIX App containers as portable Docker containers used for UIX app deployment.
+Remote containers are created via [DATEX interface](https://docs.unyt.org/manual/datex/public-endpoint-interfaces) on the Docker Host.
 
 ## Setup
-A docker host instance can be created by running the `setup.sh` script:
-```shell
+> [!WARNING]
+> **Docker Hosts** are only support on Linux systems. If you experience some issues with your Linux distribution please let us know.
+
+
+You can setup your personal **Docker Host** on the target machine using the following command:
+```bash
 curl -s https://raw.githubusercontent.com/unyt-org/docker-host/master/setup.sh | bash -s @+YOUR_DOCKER_HOST
 ```
 
-## Deploying a UIX app
+Make sure to pass a unique [endpoint id](https://docs.unyt.org/manual/datex/endpoints) to the install script. The setup script will create a docker host instance by installing [Deno](https://github.com/denoland/deno) and creating a persistent service inside of `etc/systemd/system`.
 
-A UIX app is automatically deployed to this host if the `location` option in the `.dx`
-file is set to the host endpoint. 
-This can also be configured for a specific stage only, e.g.:
+Make sure that the service is up and running:
+```bash
+systemctl status unyt_YOUR_DOCKER_HOST
+```
 
-```datex
+![Status ](.github/service-status.png)
+
+## Configuration
+The `config.dx` file is used to apply custom configuration to the Docker Host:
+```ts
+{
+	token: "ACCESS_TOKEN",
+	enableTraefik: false, 
+	hostPort: 80,
+	allowArbitraryDomains: true,
+	setDNSEntries: false
+}
+```
+* **token** - If an access token is configured, the Docker Host will deploy apps only if they have the correct token configured. It is highly recommended to use a strong access token if the Docker Host is only used for personal deployment.
+* **enableTraefik** - If enabled, a [Traefik Proxy](https://traefik.io/traefik/) is installed automatically to act as reverse proxy on your system to handle different domains and automatic SSL. If this option is disabled, you have to make sure to handle the routing of HTTP traffic to your personal container by yourself.
+* **hostPort** - Configure the Docker Port to expose traefik on.
+---
+* **allowArbitraryDomains** (*internal*) - Allow arbitrary domains to be configured. If set to false, only [*.unyt.app](https://unyt.app)-domains. can be used for deployment.
+* **setDNSEntries** (*internal*) - If you have access to the [unyt.org DNS service](https://github.com/unyt-org/dns), you can enable this option to allow for the resolval for [*.unyt.app](https://unyt.app)-domains.
+
+To reload the configuration, the service must be restarted using the following command:
+```bash
+systemctl restart unyt_YOUR_DOCKER_HOST
+```
+
+## Deploying your UIX app
+
+Your UIX app is automatically deployed to host if the `location` option in the `backend/.dx` file is set to the Docker Host endpoint. Please refer to the [Deployment Documentation](https://docs.unyt.org/manual/uix/deployment#example) for more details.
+
+The location can be customized for specific stages:
+
+```ts
 use stage from #public.uix;
 
 location: stage {
@@ -23,6 +59,27 @@ location: stage {
 	prod: 		@+YOUR_DOCKER_HOST_2
 }
 ```
+
+You can configure custom (sub)-domains to be used by your app for different stages:
+
+```ts
+domain: stage {
+	staging:	"staging.example.com",
+	prod:		"example.com"
+}
+```
+
+You can configure custom endpoints to be used as your app backend endpoints for different stages:
+
+```ts
+endpoint: stage {
+	staging:	@+example,
+	prod:		@+example-stage
+}
+```
+
+> [!WARNING]
+> If the 
 
 ### Manual deployment via the DATEX interface
 

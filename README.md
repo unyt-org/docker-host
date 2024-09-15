@@ -79,7 +79,19 @@ endpoint: stage {
 ```
 
 > [!WARNING]
-> If the 
+> If the Docker Host you plan to deploy to has a access token configured, you need to pass this access token to UIX to make sure your app can authenticate.<br/>
+> You can set the access token as `HOST_TOKEN` environment variable on your local UIX projects console.
+> ```bash
+> export HOST_TOKEN=YOUR_TOKEN
+> ```
+
+To deploy your UIX app, please make sure you have the latest changes in sync with your remote git repository. This is required by the Docker Host, since it will clone your sources via [GitHub](https://github.com) or [GitLab](https://gitlab.com) API on deployment.
+
+To deploy your app, start `uix` via CLI. If you want to select a custom stage pass the `--stage <name>` argument.
+
+```bash
+uix --stage prod
+```
 
 ### Manual deployment via the DATEX interface
 

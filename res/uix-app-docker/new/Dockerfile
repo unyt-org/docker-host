@@ -4,6 +4,9 @@ RUN apt-get update && apt-get install -y \
 	unzip \
 	curl
 
+ARG INSTALL_PACKAGES
+RUN if [ ! -z "$INSTALL_PACKAGES" ] ; then apt-get install -y $INSTALL_PACKAGES ; fi
+
 EXPOSE 80
 
 WORKDIR /uix
@@ -13,4 +16,4 @@ COPY ./uix-startup.sh .
 RUN curl -fsSL https://unyt.land/install.sh | bash
 RUN chmod +x ./uix-startup.sh
 
-ENTRYPOINT ["./uix-startup.sh ./importmap.json https://dev.cdn.unyt.org/uix1/run.ts dev"]
+ENTRYPOINT ["./uix-startup.sh"]

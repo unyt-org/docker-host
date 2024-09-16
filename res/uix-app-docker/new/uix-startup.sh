@@ -1,5 +1,4 @@
 #!/bin/bash
-apt-get install dos2unix # custom installs
 
 IMPORT_MAP_PATH="$1"
 RUN_TS_URL="$2"

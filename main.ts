@@ -69,7 +69,6 @@ const ensureToken = (token?: string) => {
 	}
 
 	@property static async createUIXAppContainer(
-		token: string,
 		gitURL: string,
 		branch: string,
 		endpoint: Datex.Endpoint,
@@ -79,7 +78,9 @@ const ensureToken = (token?: string) => {
 		args?: string[],
 		persistentVolumePaths?: string[],
 		gitAccessToken?: string,
-		advancedOptions?: AdvancedUIXContainerOptions): Promise<UIXAppContainer> {
+		advancedOptions?: AdvancedUIXContainerOptions,
+		token?: string
+	): Promise<UIXAppContainer> {
 		ensureToken(token);
 		const sender = datex.meta!.caller;
 		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch, env);

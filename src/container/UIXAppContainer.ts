@@ -51,7 +51,7 @@ export type AdvancedUIXContainerOptions = {
 	@property args?: string[]
 
 	// use v.0.1
-	isVersion1 = false;
+	version = 0;
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
 
 	async construct(
@@ -122,16 +122,15 @@ export type AdvancedUIXContainerOptions = {
 				}
 			}
 		}
-		
-		this.isVersion1 = !!env?.includes("UIX_VERSION=0.1")
-
-		if (this.isVersion1)
-			this.logger.info("using UIX v0.1")
-
 		// inject environment variables
 		for (const envVar of env??[]) {
 			const [key, val] = envVar.split("=");
 			this.addEnvironmentVariable(key, val);
+
+			if (key === "UIX_VERSION") {
+				this.version = +val.replace("0.", "");
+				this.logger.info(`Using UIX v${this.version}`);
+			}
 		}
 
 		// add persistent volumes
@@ -473,9 +472,7 @@ Host ${this.uniqueGitHostName}
 
 	private async getDockerFileContent() {
 		let dockerfile = await Deno.readTextFile(
-			this.isVersion1 ? 
-				'./res/uix-app-docker/Dockerfile_v0.1' :
-				'./res/uix-app-docker/Dockerfile'
+				`./res/uix-app-docker/Dockerfile_v0.${this.version}`
 		);
 
 		// add uix run args + custom importmap/run path

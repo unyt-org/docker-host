@@ -1,0 +1,23 @@
+FROM ubuntu:latest
+RUN apt-get update && apt-get install -y \
+	bash \
+	unzip \
+	curl
+
+ARG stage
+ARG host_endpoint
+# ARG uix_args
+
+ENV APP_STAGE=$stage
+ENV UIX_HOST_ENDPOINT=$host_endpoint
+
+# Copy repo
+WORKDIR /app
+COPY ./repo .
+
+EXPOSE 80
+{{EXPOSE_DEBUG}}
+
+RUN curl -fsSL https://unyt.land/install.sh | bash
+
+CMD sh -c "rm -f deno.lock; rm -f ./src/deno.lock; $HOME/.uix/bin/deno run --config deno.json --import-map {{IMPORTMAP_PATH}} -Aqr {{UIX_RUN_PATH}} --port 80 --stage $APP_STAGE --cache-path /datex-cache {{UIX_ARGS}}"

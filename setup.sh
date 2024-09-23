@@ -6,7 +6,7 @@ if ! [ -x "$(command -v git)" ]; then
 fi
 
 if ! [ -x "$(command -v docker)" ]; then
-	echo "docker must be installed"
+	echo "Docker must be installed"
 	exit 1
 fi
 
@@ -14,6 +14,7 @@ if ! [ -x "$(command -v unzip)" ]; then
 	echo "unzip must be installed"
 	exit 1
 fi
+
 
 # Install deno
 if ! [ -x "$(command -v deno)" ]; then
@@ -37,24 +38,35 @@ if ! [ -x "$(command -v deno)" ]; then
 fi
 
 
-# echo "Please enter the endpoint id for this docker host:"
-# read ENDPOINT
 ENDPOINT="$1"
+if [ ${#ENDPOINT} -gt 20 ]; then
+	echo "Error: Endpoint id/name must be <=18 bytes"
+	exit 1
+fi
 
 mkdir -p $HOME/.unyt-docker-host/
 
 DIR=$HOME/.unyt-docker-host/$ENDPOINT
 GIT_ORIGIN=https://github.com/unyt-org/docker-host.git
-SERVICE_NAME=$(systemd-escape "unyt_docker_host_$ENDPOINT")
+SERVICE_NAME=$(systemd-escape "unyt_$(echo "$ENDPOINT" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9_]/_/g')")
 DENO_DIR=$(which deno)
+
+if [ -d "$DIR" ]; then
+	echo "$DIR does already exist. Please pick another endpoint or remove the existing Docker Host"
+	exit
+fi
 
 # clone git repo
 echo "Cloning git repo to $DIR ..."
-git clone $GIT_ORIGIN $DIR
+git clone -b v2 $GIT_ORIGIN $DIR
+
+# set access token
+RANDOM_STRING=$(head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 16)
+NEW_TOKEN="\"$(echo $RANDOM_STRING | sed 's/.\{4\}/&-/g;s/-$//')\""
+sed -i.bak 's/token: "[^"]*"/token: '"$NEW_TOKEN"'/g' "$DIR/config.dx"
 
 # rename endpoint
 echo "endpoint: $ENDPOINT" > "$DIR/.dx"
-
 
 # Create the service unit file
 cat > /etc/systemd/system/$SERVICE_NAME.service <<EOL
@@ -83,10 +95,10 @@ systemctl daemon-reload
 systemctl enable $SERVICE_NAME
 systemctl start $SERVICE_NAME
 
-echo "Docker host running"
-echo "\nCheck status:"
+echo "Docker host '$ENDPOINT' is running"
+echo -e "\nCheck status:"
 echo "    systemctl status $SERVICE_NAME"
 echo "    journalctl -u $SERVICE_NAME"
-echo "\n"
+echo -e "\n"
 
 systemctl status $SERVICE_NAME

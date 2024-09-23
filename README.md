@@ -147,7 +147,7 @@ ref container = ContainerManager.createUIXAppContainer(
 	"git@github.com:benStre/xam.git", // git origin for the UIX app 
 	"main", // branch name
 	@+my_app_deployment, // endpoint for the deployment stage
-	"production", // stage
+	"prod", // stage
 	["my-app.com"], // custom exposed domains
 	["SECRET=123", "SECRET2=42"] // environment variables
 );

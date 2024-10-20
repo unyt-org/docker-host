@@ -18,6 +18,6 @@ COPY ./repo .
 EXPOSE 80
 {{EXPOSE_DEBUG}}
 
-RUN curl -fsSL https://unyt.land/install.sh | bash
+RUN curl -fsSL https://unyt.land/install-deno.sh | bash
 
 CMD sh -c "rm -f deno.lock; rm -f ./src/deno.lock; $HOME/.uix/bin/deno run --config deno.json --import-map {{IMPORTMAP_PATH}} -Aqr {{UIX_RUN_PATH}} --port 80 --stage $APP_STAGE --cache-path /datex-cache {{UIX_ARGS}}"

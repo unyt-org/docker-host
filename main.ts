@@ -97,7 +97,7 @@ const ensureToken = (token?: string) => {
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
 		container.start().then(async ()=>{
 			if (container.status === ContainerStatus.FAILED) {
-				container.stop(true);
+				//container.stop(true);
 				logger.error(`Could not start app container for '${gitURL}'`);
 			} else {
 				// link container to requesting endpoint

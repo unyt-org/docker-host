@@ -22,7 +22,7 @@ RUN chmod +x uix-startup.sh
 # Install Deno
 ARG DENO
 RUN if [ "$DENO" = "legacy" ] ; then curl -fsSL https://deno.land/install.sh | bash; fi
-RUN if [ "$DENO" != "legacy" ] ; then curl -fsSL https://unyt.land/install-deno.sh | bash ; fi
+RUN if [ "$DENO" != "legacy" ] ; then curl -fsSL https://raw.githubusercontent.com/unyt-org/uix-install/main/install-deno.sh | bash ; fi
 
 # Set version for Deno
 ARG DENO_VERSION

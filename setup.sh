@@ -58,7 +58,6 @@ fi
 
 # clone git repo
 echo "Cloning git repo to $DIR ..."
-# git clone -b v2 $GIT_ORIGIN $DIR
 git clone $GIT_ORIGIN $DIR
 
 # set access token

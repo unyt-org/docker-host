@@ -197,6 +197,10 @@ const logger = new Datex.Logger("Container");
 			], false);
 		} catch (e) {
 			this.logger.error("error while stopping container",e);
+			if (force) {
+				this.status = ContainerStatus.STOPPED;
+				return true;	
+			}
 			// TODO FAILED or RUNNING?
 			this.status = ContainerStatus.FAILED;
 			return false;

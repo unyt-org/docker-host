@@ -22,7 +22,7 @@ services:
       - "traefik.http.routers.${UNYT_NAME}.middlewares=redirect-to-https@docker"
       - "traefik.http.routers.${UNYT_NAME}-secured.rule=Host(`${UNYT_HOST}`) || Host(`www.${UNYT_HOST}`)"
       - "traefik.http.routers.${UNYT_NAME}-secured.tls=true"
-      - "traefik.http.routers.${UNYT_NAME}-secured.tls.certresolver=myhttpchallenge"
+      - "traefik.http.routers.${UNYT_NAME}-secured.tls.certresolver=le"
 
 
 networks:

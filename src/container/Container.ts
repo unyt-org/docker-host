@@ -292,7 +292,7 @@ const logger = new Datex.Logger("Container");
 			this.addLabel(`traefik.http.routers.${name}.tls.domains[0].sans=${host}`);
 			this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=mydnschallenge`);
 		} else {
-			this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=myhttpchallenge`);
+			this.addLabel(`traefik.http.routers.${name}-secured.tls.certresolver=le`);
 		}
 
 		if (port) {

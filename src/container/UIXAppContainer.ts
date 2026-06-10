@@ -28,10 +28,10 @@ const defaulTraefikToml = `
   exposedByDefault = false
   network = "main"
 
-[certificatesresolvers.myhttpchallenge.acme]
+[certificatesresolvers.le.acme]
     caserver = "https://acme-v02.api.letsencrypt.org/directory"
     email = "postmaster@unyt.org"
-    [certificatesresolvers.myhttpchallenge.acme.httpchallenge] 
+    [certificatesresolvers.le.acme.httpchallenge] 
     entrypoint = "web"
 `;
 

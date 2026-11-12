@@ -59,6 +59,13 @@ export type AdvancedUIXContainerOptions = {
 	static SAFE_CMD_VALUE = /^[A-Za-z0-9_\-.,:\/@+=%~]*$/
 	static VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+	// port for a domain: null/undefined = default port
+	static isValidPort(port: unknown) {
+		if (port === null || port === undefined) return true;
+		const n = Number(port);
+		return Number.isInteger(n) && n >= 1 && n <= 65535;
+	}
+
 	// git access token, not exposed as a synced property
 	#gitOAuthToken?: string
 
@@ -81,7 +88,7 @@ export type AdvancedUIXContainerOptions = {
 			if (!(
 				UIXAppContainer.VALID_DOMAIN.test(domain) || 
 				(config.allowArbitraryDomains && domain.startsWith('*.') && UIXAppContainer.VALID_DOMAIN.test(domain.slice(2)))
-			) || !Number.isInteger(Number(domains![domain])) || Number(domains![domain]) < 1 || Number(domains![domain]) > 65535) {
+			) || !UIXAppContainer.isValidPort(domains![domain])) {
 				this.errorMessage = `Invalid domain name "${domain}". Only alphanumeric characters and dashes are allowed.`;
 				this.status = ContainerStatus.FAILED;
 				throw new Error(this.errorMessage);

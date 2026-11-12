@@ -8,7 +8,7 @@ import { RemoteImageContainer } from "./RemoteImageContainer.ts";
 import { ContainerStatus } from "./Types.ts";
 import { getIP } from "https://deno.land/x/get_ip@v2.0.0/mod.ts";
 import { ContainerManager } from "../../main.ts";
-import { executeDocker, executeGit, executeShell } from "../CMD.ts";
+import { executeCommandArgs, executeCommandOutput, executeDocker, executeGit, executeShell } from "../CMD.ts";
 import { containers } from "../../main.ts";
 
 const publicServerIP = await getIP({ ipv6: false });
@@ -53,6 +53,14 @@ export type AdvancedUIXContainerOptions = {
 	// use v.0.1
 	version = 0;
 	static VALID_DOMAIN = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/
+	// allowed characters for git repository paths (org/repo)
+	static VALID_GIT_PATH = /^\/?[A-Za-z0-9._~\-]+(\/[A-Za-z0-9._~\-]+)+\/?$/
+	// allowed characters for values that are inserted into the Dockerfile CMD (sh -c "...")
+	static SAFE_CMD_VALUE = /^[A-Za-z0-9_\-.,:\/@+=%~]*$/
+	static VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+	// git access token, not exposed as a synced property
+	#gitOAuthToken?: string
 
 	async construct(
 		owner: Datex.Endpoint,
@@ -72,8 +80,8 @@ export type AdvancedUIXContainerOptions = {
 		for (const domain of Object.keys(domains ?? {})) {
 			if (!(
 				UIXAppContainer.VALID_DOMAIN.test(domain) || 
-				(config.allowArbitraryDomains && domain.startsWith('*.'))
-			)) {
+				(config.allowArbitraryDomains && domain.startsWith('*.') && UIXAppContainer.VALID_DOMAIN.test(domain.slice(2)))
+			) || !Number.isInteger(Number(domains![domain])) || Number(domains![domain]) < 1 || Number(domains![domain]) > 65535) {
 				this.errorMessage = `Invalid domain name "${domain}". Only alphanumeric characters and dashes are allowed.`;
 				this.status = ContainerStatus.FAILED;
 				throw new Error(this.errorMessage);
@@ -83,29 +91,61 @@ export type AdvancedUIXContainerOptions = {
 		// convert from https url
 		if (gitURL.startsWith("https://")) {
 			this.gitHTTPS = new URL(gitURL);
-			this.gitSSH = `git@${this.gitHTTPS.host}:${this.gitHTTPS.pathname.slice(1)}`;
+			// strip any credentials from the url
+			this.gitHTTPS.username = "";
+			this.gitHTTPS.password = "";
+			this.gitSSH = `git@${this.gitHTTPS.hostname}:${this.gitHTTPS.pathname.slice(1)}`;
 		}
 		// convert from ssh url
 		else if (gitURL.startsWith("git@")) {
-			const [host, pathname] = gitURL.match(/git@([^:]*)+?:(.*)/i)?.slice(1) ?? [];
+			const [host, pathname] = gitURL.match(/^git@([^:]*)+?:(.*)$/i)?.slice(1) ?? [];
 			if (!host || !pathname)
 				throw new Error(`Invalid git URL '${gitURL}'!`);
-			this.gitSSH = gitURL;
 			this.gitHTTPS = new URL(`https://${host}/${pathname}`);
+			this.gitSSH = `git@${this.gitHTTPS.hostname}:${this.gitHTTPS.pathname.slice(1)}`;
+		}
+		else throw new Error(`Invalid git URL '${gitURL}'! Only https:// and git@ URLs are supported.`);
+
+		// strict validation: host and path are used in git/ssh commands and file paths
+		if (
+			!UIXAppContainer.VALID_DOMAIN.test(this.gitHTTPS.hostname) ||
+			this.gitHTTPS.port ||
+			this.gitHTTPS.search || this.gitHTTPS.hash ||
+			!UIXAppContainer.VALID_GIT_PATH.test(this.gitHTTPS.pathname) ||
+			this.gitHTTPS.pathname.split("/").some(p => p === "." || p === "..")
+		) {
+			this.errorMessage = `Invalid git URL '${gitURL}'!`;
+			this.status = ContainerStatus.FAILED;
+			throw new Error(this.errorMessage);
 		}
 
-		// add gh token to URL
+		// git access token (only used for cloning, never stored in a synced property)
 		if (gitOAuthToken) {
-			this.gitHTTPS.username = "oauth2";
-			this.gitHTTPS.password = gitOAuthToken;
+			if (typeof gitOAuthToken !== "string" || !/^[A-Za-z0-9_\-.]+$/.test(gitOAuthToken))
+				throw new Error("Invalid git access token");
+			this.#gitOAuthToken = gitOAuthToken;
 		}
+
+		if (stage !== undefined && (typeof stage !== "string" || !/^[A-Za-z0-9_\-]{0,40}$/.test(stage)))
+			throw new Error(`Invalid stage '${stage}'`);
 
 		this.container_name = (endpoint.name + (endpoint.name.toLowerCase().endsWith(stage.toLowerCase()) ? '' : (stage ? '-' + stage : '')))
-			.replace(/[^a-z0-9@-_#]/gmi, '-')
+			.replace(/[^a-z0-9@_#-]/gmi, '-')
 			.toLowerCase();
 		this.advancedOptions = advancedOptions;
 
 		this.endpoint = endpoint; // TODO: what if @@local is passed
+
+		// validate uix args + advanced options (inserted into the Dockerfile CMD)
+		if (args !== undefined && args !== null) {
+			if (!Array.isArray(args) || args.some(a => typeof a !== "string" || !UIXAppContainer.SAFE_CMD_VALUE.test(a)))
+				throw new Error(`Invalid UIX args: ${JSON.stringify(args)}`);
+		}
+		for (const key of ["importMapPath", "uixRunPath"] as const) {
+			const val = advancedOptions?.[key];
+			if (val !== undefined && val !== null && !UIXAppContainer.SAFE_CMD_VALUE.test(String(val)))
+				throw new Error(`Invalid ${key}: ${val}`);
+		}
 		this.args = args;
 		
 		this.branch = branch ?? "main";
@@ -124,17 +164,26 @@ export type AdvancedUIXContainerOptions = {
 		}
 		// inject environment variables
 		for (const envVar of env??[]) {
-			const [key, val] = envVar.split("=");
+			if (typeof envVar !== "string" || !envVar.includes("="))
+				throw new Error(`Invalid environment variable`);
+			const key = envVar.slice(0, envVar.indexOf("="));
+			const val = envVar.slice(envVar.indexOf("=") + 1);
+			if (!UIXAppContainer.VALID_ENV_KEY.test(key))
+				throw new Error(`Invalid environment variable name '${key}'`);
 			this.addEnvironmentVariable(key, val);
 
 			if (key === "UIX_VERSION") {
 				this.version = +val.replace("0.", "");
+				if (![0, 1, 3].includes(this.version))
+					throw new Error(`Unsupported UIX_VERSION '${val}'`);
 				this.logger.info(`Using UIX v${this.version}`);
 			}
 		}
 
 		// add persistent volumes
 		for (const path of persistentVolumePaths ?? []) {
+			if (typeof path !== "string" || !/^\.?\/[A-Za-z0-9_\-.\/]*$/.test(path) || path.split("/").includes(".."))
+				throw new Error(`Invalid persistent volume path '${path}'`);
 			const mappedPath = path.startsWith("./") ? `/app${path.slice(1)}` : path;
 			const volumeName = this.formatVolumeName(`${this.container_name}-persistent-${(Object.keys(this.volumes).length)}`);
 			await this.addVolume(volumeName, mappedPath);
@@ -184,7 +233,7 @@ export type AdvancedUIXContainerOptions = {
 				traefikContainer.addVolumePath("/var/run/docker.sock", "/var/run/docker.sock")
 				traefikContainer.addVolumePath(traefikTomlPath.normal_pathname, "/etc/traefik/traefik.toml")
 				traefikContainer.addVolumePath(acmeJsonPath.normal_pathname, "/acme.json")
-				traefikContainer.start();
+				traefikContainer.startInternal();
 				logger.success("Created traefik container", traefikContainer);
 			}
 		}
@@ -289,10 +338,17 @@ export type AdvancedUIXContainerOptions = {
 		
 			try {
 				if (this.gitOrigin === "GitHub")
-					repoIsPublic = (await (await fetch(`https://api.github.com/repos/${this.orgName}/${this.repoName}`)).json()).visibility == "public"
+					repoIsPublic = (await (await fetch(`https://api.github.com/repos/${encodeURIComponent(this.orgName)}/${this.repoName.split("/").map(encodeURIComponent).join("/")}`)).json()).visibility == "public"
 				else if (this.gitOrigin === "GitLab")
 					repoIsPublic = (await (await fetch(`${this.gitOriginURL}info/refs?service=git-upload-pack`)).json());
 			} catch { /* */}
+
+			// clone url with access token (not stored)
+			const cloneURL = new URL(this.gitHTTPS.toString());
+			if (this.#gitOAuthToken) {
+				cloneURL.username = "oauth2";
+				cloneURL.password = this.#gitOAuthToken;
+			}
 
 			// try clone with https first
 			try {
@@ -302,13 +358,13 @@ export type AdvancedUIXContainerOptions = {
 					"--single-branch",
 					"--branch", this.branch,
 					"--recurse-submodules",
-					this.gitHTTPS.toString(),
+					"--",
+					cloneURL.toString(),
 					repoPath
 				], true);
 			} catch (e) {
-				Object.freeze(this.gitHTTPS);
 				// was probably a github token error, don't try ssh
-				if (this.gitHTTPS.username === "oauth2") {
+				if (this.#gitOAuthToken) {
 					this.errorMessage = `Could not clone git repository ${this.gitHTTPS}: Authentication failed.\nPlease make sure the ${this.gitOrigin} access token is valid and enables read access to the repository.`;
 					throw e;
 				}
@@ -328,6 +384,7 @@ export type AdvancedUIXContainerOptions = {
 						"clone",
 						"--depth", "1",
 						"--recurse-submodules",
+						"--",
 						key,
 						repoPath
 					], true);
@@ -413,9 +470,10 @@ export type AdvancedUIXContainerOptions = {
 	}
 
 	private get sshKeyName() {
-		return Datex.Runtime.endpoint.main.name.replaceAll('-','_') +
+		return (Datex.Runtime.endpoint.main.name.replaceAll('-','_') +
 			'_' + this.orgName?.replaceAll('-','_').replaceAll('/','_') +
-			'_' + this.repoName?.replaceAll('-','_').replaceAll('/','_');
+			'_' + this.repoName?.replaceAll('-','_').replaceAll('/','_'))
+			.replace(/[^A-Za-z0-9_]/g, '_');
 	}
 
 	private get sshKeyPath() {
@@ -439,18 +497,17 @@ export type AdvancedUIXContainerOptions = {
 		// generate new key
 		catch {
 
-			// ssh keyscan
-			await executeShell([
-				"ssh-keyscan",
-				"-H", this.gitHTTPS.hostname,
-				">>", `${homeDir}/.ssh/known_hosts`
-			], false);
-			await executeShell([
-				"ssh-keygen",
+			// ssh keyscan (no shell, hostname is validated but must never be interpolated into a shell command)
+			const knownHosts = await executeCommandOutput("ssh-keyscan", [
+				"-H", "--", this.gitHTTPS.hostname
+			]);
+			await Deno.mkdir(`${homeDir}/.ssh`, { recursive: true, mode: 0o700 });
+			await Deno.writeTextFile(`${homeDir}/.ssh/known_hosts`, knownHosts, { append: true });
+			await executeCommandArgs("ssh-keygen", [
 				"-t", "rsa",
 				"-b", "4096",
-				"-N", "''",
-				"-C", `'${Datex.Runtime.endpoint.main.toString()}'`,
+				"-N", "",
+				"-C", Datex.Runtime.endpoint.main.toString(),
 				"-f", keyPath
 			]);
 			// add to ssh/config

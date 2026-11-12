@@ -58,7 +58,7 @@ import { executeDocker } from "../CMD.ts";
 		} catch (e) {
 			this.logger.error("Workbench Endpoint not reachable");
 			this.logger.error(e);
-			await this.stop(); // stop container again for consistant container state
+			await this.stopInternal(); // stop container again for consistant container state
 			return false;
 		}
 		this.logger.success("Workbench Endpoint is reachable");

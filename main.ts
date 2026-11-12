@@ -14,9 +14,28 @@ const logger = new Datex.Logger("Docker Host");
 logger.info("Starting up Docker Host with config:", config);
 await Datex.Supranet.connect();
 
+if (!config.token || typeof config.token !== "string" || !config.token.length)
+	logger.error("No access token configured in config.dx - all requests to the Docker Host will be rejected. Please set a token.");
+else if (config.token === "admin" || config.token.length < 12)
+	logger.warn("The configured access token is weak or the default token. Please set a strong random token in config.dx.");
+
+const encoder = new TextEncoder();
+function timingSafeEqual(a: string, b: string) {
+	const aBytes = encoder.encode(a);
+	const bBytes = encoder.encode(b);
+	let diff = aBytes.length ^ bBytes.length;
+	for (let i = 0; i < aBytes.length; i++)
+		diff |= aBytes[i] ^ (bBytes[i] ?? 0);
+	return diff === 0;
+}
+
 const ensureToken = (token?: string) => {
-	if (config.token && config.token.length && config.token !== token) {
-		logger.error(`Got request with invalid or missing access token "${token ?? "none"}"`);
+	// fail closed: if no token is configured, reject all requests
+	if (
+		!config.token || typeof config.token !== "string" || !config.token.length ||
+		typeof token !== "string" || !timingSafeEqual(config.token, token)
+	) {
+		logger.error(`Got request with invalid or missing access token from ${datex.meta?.caller ?? "unknown"}`);
 		throw new Error(`Invalid access token: The Docker Host ${Datex.Runtime.endpoint} requires authentication. Please make sure to set the HOST_TOKEN environment variable.`);
 	}
 }
@@ -43,7 +62,7 @@ const ensureToken = (token?: string) => {
 		// init and start WorkbenchContainer
 		// @ts-ignore $
 		const container = new WorkbenchContainer(sender, config);
-		container.start();
+		container.startInternal();
 
 		// link container to requesting endpoint
 		await this.addContainer(sender, container);
@@ -53,14 +72,14 @@ const ensureToken = (token?: string) => {
 	@property static async createRemoteImageContainer(token: string, name: string): Promise<RemoteImageContainer> {
 		ensureToken(token);
 		const sender = datex.meta!.caller;
-		if (!name || typeof name !== "string" || name.length < 2 || name.length > 80 || !/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(name))
+		if (!name || typeof name !== "string" || name.length < 2 || name.length > 80 || name.startsWith("-") || !/^[a-z\.\-\/#%?=0-9:&]+$/i.test(name))
 			throw new Error(`Can not create remote image container with name '${name}'`);
 		logger.info(`Creating new Remote Image Container '${name}' for`, sender);
 
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new RemoteImageContainer(sender, name);
-		container.start().then(async ()=>{
+		container.startInternal().then(async ()=>{
 			await this.addContainer(sender, container);
 		}).catch();
 
@@ -83,9 +102,10 @@ const ensureToken = (token?: string) => {
 	): Promise<UIXAppContainer> {
 		ensureToken(token);
 		const sender = datex.meta!.caller;
-		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch, env);
+		// only log env variable names, values may contain secrets
+		logger.info(`Creating new UIX App Container for ${sender}`, gitURL, branch, (Array.isArray(env) ? env : []).map(e => String(e).split("=")[0]));
 
-		if (!branch || typeof branch !== "string" || branch.length < 2 || branch.length > 50 || !/^[a-z\.\-\/#0-9:&]+$/gi.test(branch))
+		if (!branch || typeof branch !== "string" || branch.length < 2 || branch.length > 50 || branch.startsWith("-") || !/^[a-z\.\-\/#0-9:&_]+$/i.test(branch))
 			throw new Error(`Can not create UIX App container with branch '${branch}'`);
 		if (!gitURL || typeof gitURL !== "string" || gitURL.length < 2)
 			throw new Error(`Can not create UIX App container with url '${gitURL}'`);
@@ -95,7 +115,7 @@ const ensureToken = (token?: string) => {
 		// init and start RemoteImageContainer
 		// @ts-ignore $
 		const container = new UIXAppContainer(sender, endpoint, gitURL, branch, stage, domains, env, args, persistentVolumePaths, gitAccessToken, advancedOptions);
-		container.start().then(async ()=>{
+		container.startInternal().then(async ()=>{
 			if (container.status === ContainerStatus.FAILED) {
 				//container.stop(true);
 				logger.error(`Could not start app container for '${gitURL}'`);

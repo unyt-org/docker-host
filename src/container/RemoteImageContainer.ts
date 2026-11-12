@@ -17,7 +17,7 @@ import { executeDocker } from "../CMD.ts";
 	@property async update() {
 		try {
 			const image = `${this.url}${this.version ? `:${this.version}` : ''}`;
-			if (!/^[a-z\.\-\/#%?=0-9:&]+$/gi.test(image))
+			if (image.startsWith("-") || !/^[a-z\.\-\/#%?=0-9:&]+$/i.test(image))
 				throw new Error(`Could not pull image with name ${image}`);
 			this.image = image;
 			await executeDocker([

@@ -2,7 +2,7 @@
 import { Datex } from "unyt_core/mod.ts";
 import { ContainerStatus } from "./Types.ts";
 import { createHash } from "https://deno.land/std@0.91.0/hash/mod.ts";
-import { executeDocker, executeShell } from "../CMD.ts";
+import { executeCommandOutput, executeDocker } from "../CMD.ts";
 import { containers } from "../../main.ts";
 
 const logger = new Datex.Logger("Container");
@@ -82,7 +82,25 @@ const logger = new Datex.Logger("Container");
 		this.updateAfterReplicate();
 	}
 
+	/**
+	 * Throws if the current remote caller is not the owner of this container.
+	 * Local calls (no remote caller / own endpoint) are always allowed.
+	 */
+	protected assertCallerIsOwner() {
+		const caller = datex.meta?.caller as Datex.Endpoint|undefined;
+		if (!caller || caller === Datex.LOCAL_ENDPOINT) return;
+		if (caller.main?.equals?.(Datex.Runtime.endpoint.main)) return;
+		if (this.owner && (caller.equals(this.owner) || caller.main?.equals?.(this.owner.main))) return;
+		this.logger?.error(`Rejected access to container ${this.container_name} from ${caller}`);
+		throw new Error(`No permission to access container ${this.container_name}`);
+	}
+
 	@property async start() {
+		this.assertCallerIsOwner();
+		return await this.startInternal();
+	}
+
+	public async startInternal() {
 		// start => RUNNING or FAILED
 		const running = await this.handleStart();
 		if (running) {
@@ -121,7 +139,8 @@ const logger = new Datex.Logger("Container");
 			await executeDocker([
 				"run",
 				"--network", this.network,
-				...(this.debugPort ? [`-p`, `${this.debugPort}:9229`] : []),
+				// only bind the debug (inspector) port to localhost - an exposed inspector allows arbitrary code execution
+				...(this.debugPort ? [`-p`, `127.0.0.1:${this.debugPort}:9229`] : []),
 				"--log-opt",
 				"max-size=10m",
 				"-d",
@@ -143,8 +162,8 @@ const logger = new Datex.Logger("Container");
 
 	protected updateAfterReplicate() {
 		// continue start/stop if in inbetween state
-		if (this.status == ContainerStatus.STARTING) this.start();
-		else if (this.status == ContainerStatus.STOPPING) this.stop();
+		if (this.status == ContainerStatus.STARTING) this.startInternal();
+		else if (this.status == ContainerStatus.STOPPING) this.stopInternal();
 	}
 
 	protected async handleStart() {
@@ -185,7 +204,12 @@ const logger = new Datex.Logger("Container");
 		return false;
 	}
 
-	@property async stop(force = true){
+	@property async stop(force = true) {
+		this.assertCallerIsOwner();
+		return await this.stopInternal(force);
+	}
+
+	public async stopInternal(force = true) {
 		this.logger.info("Stopping Container " + this.container_name);
 		this.onBeforeStop();
 		this.status = ContainerStatus.STOPPING;
@@ -211,10 +235,14 @@ const logger = new Datex.Logger("Container");
 	 * @returns 
 	 */
 	@property public getLogs(timeout = 60) {
+		this.assertCallerIsOwner();
+		timeout = Number(timeout);
+		if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 24 * 60) timeout = 60;
 		const p = new Deno.Command("docker", {
 			args: [
 				"logs",
 				"--follow",
+				"--",
 				this.container_name
 			],
 			stdout: "piped",
@@ -246,14 +274,12 @@ const logger = new Datex.Logger("Container");
 
 	private async isRunning() {
 		try {
-			await executeShell([
-				"docker",
+			// no shell - container_name must never be interpolated into a shell command
+			const names = await executeCommandOutput("docker", [
 				"ps",
-				"|",
-				"grep",
-				`"${this.container_name}"`
-			], false);
-			return true;
+				"--format", "{{.Names}}"
+			]);
+			return names.split("\n").map(n => n.trim()).includes(this.container_name);
 		} catch (e) {
 			this.logger.error(e);
 			return false

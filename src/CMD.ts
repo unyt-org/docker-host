@@ -24,12 +24,36 @@ async function executeCommand(command: string, args: string[], output = true) {
 	}
 }
 
+/**
+ * Execute a command without a shell and return its stdout.
+ * Throws if the command fails.
+ */
+export async function executeCommandOutput(command: string, args: string[]) {
+	const result = await new Deno.Command(command, {
+		cwd: Deno.cwd(),
+		args,
+		stdout: "piped",
+		stderr: "null"
+	}).output();
+	if (!result.success) throw new Error(`Could not execute ${command}`);
+	return new TextDecoder().decode(result.stdout);
+}
+
+export async function executeCommandArgs(command: string, args: string[], output = true) {
+	return await executeCommand(command, args, output);
+}
+
 export async function executeDocker(args: string[], output = true) {
 	return await executeCommand("docker", args, output);
 }
 export async function executeGit(args: string[], output = true) {
 	return await executeCommand("git", args, output);
 }
+/**
+ * Executes the joined args with `sh -c`.
+ * WARNING: never pass untrusted / user-provided values to this function
+ * (use executeCommandArgs / executeDocker / executeGit instead).
+ */
 export async function executeShell(args: string[], output = true) {
 	let status = false;
 	try {

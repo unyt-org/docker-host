@@ -72,6 +72,11 @@ export type AdvancedUIXContainerOptions = {
 	static VALID_LOCK_FILE = /^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,99}\.lock$/;
 	#lockFile?: string
 
+	// Optional Deno version for the app container (env DENO_VERSION=x.y.z), e.g. to run the same
+	// Deno version as in local development (required for a shared deno.lock with DENO_LOCK)
+	static VALID_DENO_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+	#denoVersion?: string
+
 	// git access token, not exposed as a synced property
 	#gitOAuthToken?: string
 
@@ -184,6 +189,13 @@ export type AdvancedUIXContainerOptions = {
 			if (!UIXAppContainer.VALID_ENV_KEY.test(key))
 				throw new Error(`Invalid environment variable name '${key}'`);
 			this.addEnvironmentVariable(key, val);
+
+			if (key === "DENO_VERSION") {
+				if (!UIXAppContainer.VALID_DENO_VERSION.test(val))
+					throw new Error(`Invalid DENO_VERSION '${val}': must be a version like 2.7.13`);
+				this.#denoVersion = val;
+				this.logger.info(`Using Deno ${val}`);
+			}
 
 			if (key === "DENO_LOCK") {
 				if (!UIXAppContainer.VALID_LOCK_FILE.test(val))
@@ -584,12 +596,19 @@ Host ${this.uniqueGitHostName}
 		else
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "")
 
+		// custom Deno version (only for templates using the denoland/deno binary image)
+		if (this.#denoVersion) {
+			if (!/denoland\/deno:bin-[0-9.]+/.test(dockerfile))
+				throw new Error(`DENO_VERSION is not supported for UIX v0.${this.version}`);
+			dockerfile = dockerfile.replace(/denoland\/deno:bin-[0-9.]+/, `denoland/deno:bin-${this.#denoVersion}`);
+		}
+
 		// enforce lock file: use the given lock file as deno.lock (instead of deleting it) and run with --frozen
 		if (this.#lockFile) {
 			if (!dockerfile.includes("rm -f deno.lock; ") || !/deno run /.test(dockerfile))
 				throw new Error(`DENO_LOCK is not supported for UIX v0.${this.version}`);
 			dockerfile = dockerfile
-				.replace("rm -f deno.lock; ", `cp ${this.#lockFile} deno.lock; `)
+				.replace("rm -f deno.lock; ", this.#lockFile == "deno.lock" ? "" : `cp ${this.#lockFile} deno.lock; `)
 				.replace(/deno run /, "deno run --frozen --lock=deno.lock ");
 		}
 		return dockerfile;

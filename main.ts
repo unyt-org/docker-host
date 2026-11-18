@@ -29,13 +29,55 @@ function timingSafeEqual(a: string, b: string) {
 	return diff === 0;
 }
 
+// SECURITY: limit failed token attempts (brute force protection).
+// Per caller: max 5 failures in 10 minutes. Globally (callers can use new endpoint ids for every request):
+// max 20 failures in 10 minutes. When a limit is reached, all token checks of the caller (or all callers)
+// are rejected for 15 minutes, even with a valid token.
+const FAILURE_WINDOW = 10 * 60 * 1000;
+const LOCK_DURATION = 15 * 60 * 1000;
+const MAX_FAILURES_PER_CALLER = 5;
+const MAX_FAILURES_GLOBAL = 20;
+let globalFailures: number[] = [];
+let globalLockedUntil = 0;
+const callerFailures = new Map<string, number[]>();
+const callerLockedUntil = new Map<string, number>();
+
+function registerTokenFailure(caller: string) {
+	const now = Date.now();
+	globalFailures = globalFailures.filter(t => now - t < FAILURE_WINDOW);
+	globalFailures.push(now);
+	const failures = (callerFailures.get(caller) ?? []).filter(t => now - t < FAILURE_WINDOW);
+	failures.push(now);
+	callerFailures.set(caller, failures);
+	if (failures.length >= MAX_FAILURES_PER_CALLER) {
+		callerLockedUntil.set(caller, now + LOCK_DURATION);
+		logger.error(`Too many invalid access tokens from ${caller} - blocked for ${LOCK_DURATION / 60000} minutes`);
+	}
+	if (globalFailures.length >= MAX_FAILURES_GLOBAL) {
+		globalLockedUntil = now + LOCK_DURATION;
+		logger.error(`Too many invalid access tokens (${globalFailures.length} in ${FAILURE_WINDOW / 60000} minutes) - all requests blocked for ${LOCK_DURATION / 60000} minutes`);
+	}
+	// cleanup old entries
+	if (callerFailures.size > 10_000) {
+		for (const [key, times] of callerFailures) if (!times.some(t => now - t < FAILURE_WINDOW)) callerFailures.delete(key);
+		for (const [key, until] of callerLockedUntil) if (until < now) callerLockedUntil.delete(key);
+	}
+}
+
 const ensureToken = (token?: string) => {
+	const caller = String(datex.meta?.caller?.main ?? datex.meta?.caller ?? "unknown");
+	const now = Date.now();
+	if (globalLockedUntil > now || (callerLockedUntil.get(caller) ?? 0) > now) {
+		logger.error(`Rejected request from ${caller}: blocked after too many invalid access tokens`);
+		throw new Error(`Too many invalid access tokens: The Docker Host ${Datex.Runtime.endpoint} is temporarily blocked. Please try again later.`);
+	}
 	// fail closed: if no token is configured, reject all requests
 	if (
 		!config.token || typeof config.token !== "string" || !config.token.length ||
 		typeof token !== "string" || !timingSafeEqual(config.token, token)
 	) {
-		logger.error(`Got request with invalid or missing access token from ${datex.meta?.caller ?? "unknown"}`);
+		logger.error(`Got request with invalid or missing access token from ${caller}`);
+		registerTokenFailure(caller);
 		throw new Error(`Invalid access token: The Docker Host ${Datex.Runtime.endpoint} requires authentication. Please make sure to set the HOST_TOKEN environment variable.`);
 	}
 }

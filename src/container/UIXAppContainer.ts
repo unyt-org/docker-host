@@ -77,6 +77,11 @@ export type AdvancedUIXContainerOptions = {
 	static VALID_DENO_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 	#denoVersion?: string
 
+	// Optional online check over HTTP (env UIX_ONLINE_CHECK=http) for apps that are not connected
+	// to the DATEX network (endpoint config connect: false) - otherwise the container is only
+	// considered online when its endpoint is reachable over DATEX
+	#httpOnlineCheck = false
+
 	// git access token, not exposed as a synced property
 	#gitOAuthToken?: string
 
@@ -189,6 +194,12 @@ export type AdvancedUIXContainerOptions = {
 			if (!UIXAppContainer.VALID_ENV_KEY.test(key))
 				throw new Error(`Invalid environment variable name '${key}'`);
 			this.addEnvironmentVariable(key, val);
+
+			if (key === "UIX_ONLINE_CHECK") {
+				if (val !== "http" && val !== "datex")
+					throw new Error(`Invalid UIX_ONLINE_CHECK '${val}': must be 'http' or 'datex'`);
+				this.#httpOnlineCheck = val === "http";
+			}
 
 			if (key === "DENO_VERSION") {
 				if (!UIXAppContainer.VALID_DENO_VERSION.test(val))
@@ -662,7 +673,35 @@ Host ${this.uniqueGitHostName}
 		return dockerfile;
 	}
 
+	/**
+	 * Wait until the app inside the container responds to HTTP requests (port 80 on the docker network)
+	 */
+	private async handleOnlineHTTP() {
+		this.logger.info(`Waiting for ${this.container_name} to respond to HTTP requests`);
+		const name = Container.assertSafeDockerName(this.container_name, "container name");
+		for (let i = 0; i < 30; i++) {
+			await sleep(3000);
+			try {
+				const ips = (await executeCommandOutput("docker", [
+					"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", "--", name
+				])).trim().split(/\s+/).filter(ip => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip));
+				for (const ip of ips) {
+					const res = await fetch(`http://${ip}:80/`, { signal: AbortSignal.timeout(5000), redirect: "manual" });
+					await res.body?.cancel();
+					if (res.status < 500) {
+						this.logger.success(`${this.container_name} is online (HTTP ${res.status})`);
+						return true;
+					}
+				}
+			}
+			catch { /* not reachable yet */ }
+		}
+		this.logger.error(`${this.container_name} does not respond to HTTP requests`);
+		return false;
+	}
+
 	override async handleOnline() {
+		if (this.#httpOnlineCheck) return await this.handleOnlineHTTP();
 		// wait until endpoint inside container is reachable
 		this.logger.info(`Waiting for ${this.endpoint} to come online`);
 		let iterations = 0;

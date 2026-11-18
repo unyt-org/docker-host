@@ -439,6 +439,11 @@ export type AdvancedUIXContainerOptions = {
 				}
 			}
 
+			// Deno 2 always loads the "importMap" from deno.json (even if --import-map is passed).
+			// UIX apps point it to a generated file (e.g. .datex-cache/importmap.lock.json) that does not exist
+			// in a fresh clone - create it from the public import map, the same map the app is started with.
+			await this.ensureConfigImportMap(repoPath);
+
 			// enforced lock file must exist in the repository
 			if (this.#lockFile) {
 				try {
@@ -511,6 +516,49 @@ export type AdvancedUIXContainerOptions = {
 			return false;
 		}
 		return super.handleInit();
+	}
+
+	/**
+	 * Creates the import map referenced in deno.json ("importMap") if it is a relative path
+	 * that does not exist in the repository, as a copy of the app's public import map
+	 * ("_publicImportMap" in deno.json or the local importMapPath of the deployment).
+	 */
+	private async ensureConfigImportMap(repoPath: string) {
+		let config: Record<string, unknown>;
+		try {
+			config = JSON.parse(await Deno.readTextFile(`${repoPath}/deno.json`));
+		}
+		catch {
+			return; // no deno.json (or not plain JSON)
+		}
+		// only relative paths inside the repository
+		const insideRepo = (path: unknown): path is string =>
+			typeof path === "string" && path.length > 0 && !path.includes("\0") &&
+			!path.startsWith("/") && !/^[a-z]+:/i.test(path) && !path.split("/").includes("..");
+
+		const importMap = config.importMap;
+		if (!insideRepo(importMap)) return;
+		try {
+			await Deno.lstat(`${repoPath}/${importMap}`);
+			return; // exists
+		}
+		catch { /* missing */ }
+
+		const sourceCandidates = [config._publicImportMap, this.advancedOptions?.importMapPath?.toString()];
+		for (const source of sourceCandidates) {
+			if (!insideRepo(source)) continue;
+			try {
+				const stat = await Deno.lstat(`${repoPath}/${source}`);
+				if (!stat.isFile) continue;
+				const target = `${repoPath}/${importMap}`;
+				await Deno.mkdir(target.substring(0, target.lastIndexOf("/")), { recursive: true });
+				await Deno.copyFile(`${repoPath}/${source}`, target);
+				this.logger.info(`Created ${importMap} from ${source} (import map referenced in deno.json)`);
+				return;
+			}
+			catch { /* try next */ }
+		}
+		this.logger.warn(`deno.json references the import map ${importMap}, which does not exist in the repository`);
 	}
 
 	private get sshKeyName() {

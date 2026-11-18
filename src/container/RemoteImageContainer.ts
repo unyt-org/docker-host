@@ -15,6 +15,11 @@ import { executeDocker } from "../CMD.ts";
 
 	// update docker image
 	@property async update() {
+		this.assertCallerIsOwner();
+		return await this.updateInternal();
+	}
+
+	public async updateInternal() {
 		try {
 			const image = `${this.url}${this.version ? `:${this.version}` : ''}`;
 			if (image.startsWith("-") || !/^[a-z\.\-\/#%?=0-9:&]+$/i.test(image))
@@ -35,7 +40,7 @@ import { executeDocker } from "../CMD.ts";
 
 	// custom workbench container init
 	override async handleInit() {
-		if (!await this.update())
+		if (!await this.updateInternal())
 			return false;
 		return super.handleInit();
 	}
@@ -43,7 +48,7 @@ import { executeDocker } from "../CMD.ts";
 	// custom start
 	override async handleStart() {
 		// always pull image first
-		if (!await this.update())
+		if (!await this.updateInternal())
 			return false;
 		return super.handleStart();
 	}

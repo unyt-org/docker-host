@@ -66,6 +66,12 @@ export type AdvancedUIXContainerOptions = {
 		return Number.isInteger(n) && n >= 1 && n <= 65535;
 	}
 
+	// Optional enforced deno lock file (env DENO_LOCK=<lock file in repo root>, e.g. deno.prod.lock).
+	// The file is copied to deno.lock in the container and deno runs with --frozen: the app only starts
+	// if all remote modules (e.g. UIX/DATEX from a CDN) match the hashes in the lock file.
+	static VALID_LOCK_FILE = /^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,99}\.lock$/;
+	#lockFile?: string
+
 	// git access token, not exposed as a synced property
 	#gitOAuthToken?: string
 
@@ -178,6 +184,13 @@ export type AdvancedUIXContainerOptions = {
 			if (!UIXAppContainer.VALID_ENV_KEY.test(key))
 				throw new Error(`Invalid environment variable name '${key}'`);
 			this.addEnvironmentVariable(key, val);
+
+			if (key === "DENO_LOCK") {
+				if (!UIXAppContainer.VALID_LOCK_FILE.test(val))
+					throw new Error(`Invalid DENO_LOCK '${val}': must be the name of a .lock file in the repository root (e.g. deno.prod.lock)`);
+				this.#lockFile = val;
+				this.logger.info(`Enforcing deno lock file ${val}`);
+			}
 
 			if (key === "UIX_VERSION") {
 				this.version = +val.replace("0.", "");
@@ -414,6 +427,18 @@ export type AdvancedUIXContainerOptions = {
 				}
 			}
 
+			// enforced lock file must exist in the repository
+			if (this.#lockFile) {
+				try {
+					const stat = await Deno.lstat(`${repoPath}/${this.#lockFile}`);
+					if (!stat.isFile) throw new Error("not a file");
+				}
+				catch {
+					this.errorMessage = `DENO_LOCK is set, but the lock file '${this.#lockFile}' does not exist in the repository root (branch ${this.branch}).`;
+					throw new Error(this.errorMessage);
+				}
+			}
+
 			// set debug port
 			let i=0;
 			if (!this.args)
@@ -558,6 +583,15 @@ Host ${this.uniqueGitHostName}
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "EXPOSE 9229")
 		else
 			dockerfile = dockerfile.replace("{{EXPOSE_DEBUG}}", "")
+
+		// enforce lock file: use the given lock file as deno.lock (instead of deleting it) and run with --frozen
+		if (this.#lockFile) {
+			if (!dockerfile.includes("rm -f deno.lock; ") || !/deno run /.test(dockerfile))
+				throw new Error(`DENO_LOCK is not supported for UIX v0.${this.version}`);
+			dockerfile = dockerfile
+				.replace("rm -f deno.lock; ", `cp ${this.#lockFile} deno.lock; `)
+				.replace(/deno run /, "deno run --frozen --lock=deno.lock ");
+		}
 		return dockerfile;
 	}
 

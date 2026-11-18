@@ -82,6 +82,15 @@ const logger = new Datex.Logger("Container");
 		this.updateAfterReplicate();
 	}
 
+	// SECURITY: container/image names are synced properties and passed to docker commands -
+	// only allow plain docker names (no leading '-', no whitespace or shell characters)
+	static SAFE_DOCKER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.\-\/:@]{0,199}$/;
+	static assertSafeDockerName(name: unknown, what = "name"): string {
+		if (typeof name !== "string" || !Container.SAFE_DOCKER_NAME.test(name))
+			throw new Error(`Invalid docker ${what}: ${JSON.stringify(name)}`);
+		return name;
+	}
+
 	/**
 	 * Throws if the current remote caller is not the owner of this container.
 	 * Local calls (no remote caller / own endpoint) are always allowed.
@@ -145,12 +154,12 @@ const logger = new Datex.Logger("Container");
 				"max-size=10m",
 				"-d",
 				"--restart", restartPolicy,
-				"--name", this.container_name,
+				"--name", Container.assertSafeDockerName(this.container_name, "container name"),
 				...this.getFormattedPorts(),
 				...this.getFormattedVolumes(),
 				...this.getFormattedEnvVariables(),
 				...this.getFormattedLabels(),
-				this.image
+				Container.assertSafeDockerName(this.image, "image")
 			], false);
 			this.logger.success(`Running docker ${this.container_name}...`);
 		} catch(error) {
@@ -181,7 +190,7 @@ const logger = new Datex.Logger("Container");
 			await executeDocker([
 				"container",
 				"start",
-				this.container_name
+				Container.assertSafeDockerName(this.container_name, "container name")
 			], false);
 		} catch (error) {
 			this.logger.error("error while starting container", error);
@@ -217,7 +226,7 @@ const logger = new Datex.Logger("Container");
 			await executeDocker([
 				"container",
 				(force ? "kill" : "stop"),
-				this.container_name
+				Container.assertSafeDockerName(this.container_name, "container name")
 			], false);
 		} catch (e) {
 			this.logger.error("error while stopping container", e);
@@ -243,7 +252,7 @@ const logger = new Datex.Logger("Container");
 				"logs",
 				"--follow",
 				"--",
-				this.container_name
+				Container.assertSafeDockerName(this.container_name, "container name")
 			],
 			stdout: "piped",
 			stderr: "piped"
@@ -333,7 +342,7 @@ const logger = new Datex.Logger("Container");
 			await executeDocker([
 				"rm",
 				"-f",
-				name
+				Container.assertSafeDockerName(name, "container name")
 			], false);
 		} catch (e) {
 			logger.error("Could not remove container", e);
@@ -347,7 +356,7 @@ const logger = new Datex.Logger("Container");
 				"image",
 				"rm",
 				"-f",
-				name
+				Container.assertSafeDockerName(name, "image")
 			], false);
 		} catch (e) {
 			logger.error("Could not remove image", e);
